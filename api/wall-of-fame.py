@@ -167,8 +167,16 @@ class handler(BaseHTTPRequestHandler):
             wall, sha = github_get(WALL_FILE, token)
             if wall is None:
                 wall = {"entries": []}
+
+            # Deduplicate: a repeat submission for the same child name and same
+            # story replaces the earlier entry rather than creating a duplicate.
+            # Always keeps the most recent attempt.
+            wall["entries"] = [
+                e for e in wall["entries"]
+                if not (e.get("name") == entry["name"] and e.get("story") == entry["story"])
+            ]
             wall["entries"].insert(0, entry)
-            github_put(WALL_FILE, token, wall, sha, f"Wall of Fame: add {display_name}")
+            github_put(WALL_FILE, token, wall, sha, f"Wall of Fame: add/update {display_name}")
             self._respond(200, {"ok": True})
 
         except Exception as e:
