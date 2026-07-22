@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/wall-of-fame.py": {
+      "runtime": "python3.12"
+    },
+    "api/update-gold-rate.py": {
+      "runtime": "python3.12"
+    }
+  },
   "crons": [
     {
       "path": "/api/update-gold-rate",
