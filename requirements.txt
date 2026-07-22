@@ -1,0 +1,3 @@
+# No external dependencies — both functions use only Python's standard library
+# (http.server, json, urllib.request, base64, re, datetime) to keep the
+# deployment minimal and avoid any third-party supply-chain risk.
