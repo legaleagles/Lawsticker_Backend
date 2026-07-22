@@ -1,4 +1,8 @@
 {
+  "builds": [
+    { "src": "api/wall-of-fame.py", "use": "@vercel/python" },
+    { "src": "api/update-gold-rate.py", "use": "@vercel/python" }
+  ],
   "crons": [
     {
       "path": "/api/update-gold-rate",
