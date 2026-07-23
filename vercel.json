@@ -2,17 +2,23 @@
   "builds": [
     { "src": "api/wall-of-fame.py", "use": "@vercel/python" },
     { "src": "api/update-gold-rate.py", "use": "@vercel/python" },
-    { "src": "api/pulse.py", "use": "@vercel/python" }
+    { "src": "api/pulse.py", "use": "@vercel/python" },
+    { "src": "api/plc-watch.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/wall-of-fame", "dest": "api/wall-of-fame.py" },
     { "src": "/api/update-gold-rate", "dest": "api/update-gold-rate.py" },
-    { "src": "/api/pulse", "dest": "api/pulse.py" }
+    { "src": "/api/pulse", "dest": "api/pulse.py" },
+    { "src": "/api/plc-watch", "dest": "api/plc-watch.py" }
   ],
   "crons": [
     {
       "path": "/api/update-gold-rate",
       "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/plc-watch",
+      "schedule": "0 4 * * *"
     }
   ]
 }
