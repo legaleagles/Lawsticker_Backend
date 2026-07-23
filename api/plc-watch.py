@@ -178,7 +178,17 @@ class handler(BaseHTTPRequestHandler):
             }
             github_put(STATE_FILE, site_token, new_state, sha, "PLC watch: " + ("change detected" if changed else "no change"))
 
-            self._respond(200, {"ok": True, "changed": changed, "telegram_sent": telegram_sent, "telegram_error": telegram_error})
+            self._respond(200, {
+                "ok": True,
+                "changed": changed,
+                "telegram_sent": telegram_sent,
+                "telegram_error": telegram_error,
+                "debug_is_first_run": is_first_run,
+                "debug_previous_hash": previous_hash,
+                "debug_current_hash": current_hash,
+                "debug_page_text_length": len(page_text),
+                "debug_page_text_start": page_text[:200],
+            })
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
