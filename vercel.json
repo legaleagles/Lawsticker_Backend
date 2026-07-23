@@ -5,7 +5,8 @@
     { "src": "api/pulse.py", "use": "@vercel/python" },
     { "src": "api/plc-watch.py", "use": "@vercel/python" },
     { "src": "api/lawcet-news-watch.py", "use": "@vercel/python" },
-    { "src": "api/daily-digest.py", "use": "@vercel/python" }
+    { "src": "api/daily-digest.py", "use": "@vercel/python" },
+    { "src": "api/visit-digest.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/wall-of-fame", "dest": "api/wall-of-fame.py" },
@@ -13,7 +14,8 @@
     { "src": "/api/pulse", "dest": "api/pulse.py" },
     { "src": "/api/plc-watch", "dest": "api/plc-watch.py" },
     { "src": "/api/lawcet-news-watch", "dest": "api/lawcet-news-watch.py" },
-    { "src": "/api/daily-digest", "dest": "api/daily-digest.py" }
+    { "src": "/api/daily-digest", "dest": "api/daily-digest.py" },
+    { "src": "/api/visit-digest", "dest": "api/visit-digest.py" }
   ],
   "crons": [
     {
