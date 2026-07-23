@@ -70,10 +70,11 @@ def github_get(path, token):
     try:
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
-            return data["sha"]
+            content = base64.b64decode(data["content"]).decode()
+            return json.loads(content), data["sha"]
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return None
+            return None, None
         raise
 
 
@@ -122,12 +123,13 @@ class handler(BaseHTTPRequestHandler):
                     errors[category] = str(e)
                     feed[category] = []
 
-            output = {
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "categories": feed,
-            }
+            existing, sha = github_get(NEWS_FILE, site_token)
+            output = dict(existing) if existing else {}
+            output["updated_at"] = datetime.now(timezone.utc).isoformat()
+            output["categories"] = feed
+            # categories_te / categories_hi (written by the separate multilingual
+            # script on its own schedule) are deliberately left untouched here.
 
-            sha = github_get(NEWS_FILE, site_token)
             github_put(NEWS_FILE, site_token, output, sha, "News digest update")
 
             total = sum(len(v) for v in feed.values())
