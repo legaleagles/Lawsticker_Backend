@@ -140,10 +140,19 @@ class handler(BaseHTTPRequestHandler):
                 try:
                     send_telegram(bot_token, chat_id, message)
                     telegram_sent = True
-                except Exception:
+                    telegram_error = None
+                except urllib.error.HTTPError as e:
                     telegram_sent = False
+                    try:
+                        telegram_error = e.read().decode()
+                    except Exception:
+                        telegram_error = str(e)
+                except Exception as e:
+                    telegram_sent = False
+                    telegram_error = str(e)
             else:
                 telegram_sent = None
+                telegram_error = None
 
             new_state = {
                 "last_hash": current_hash,
@@ -152,7 +161,7 @@ class handler(BaseHTTPRequestHandler):
             }
             github_put(STATE_FILE, site_token, new_state, sha, "PLC watch: " + ("change detected" if changed else "no change"))
 
-            self._respond(200, {"ok": True, "changed": changed, "telegram_sent": telegram_sent})
+            self._respond(200, {"ok": True, "changed": changed, "telegram_sent": telegram_sent, "telegram_error": telegram_error})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
