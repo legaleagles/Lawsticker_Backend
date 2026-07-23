@@ -39,15 +39,24 @@ def fetch_text(url):
     html = re.sub(r"<script.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
     html = re.sub(r"<style.*?</style>", " ", html, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<[^>]+>", " ", html)
-    text = re.sub(r"&nbsp;|&amp;|&quot;|&#\d+;", " ", text)
+    text = text.replace("&#8377;", "₹").replace("&#x20b9;", "₹").replace("&rupee;", "₹")
+    text = re.sub(r"&nbsp;|&amp;|&quot;", " ", text)
+    text = re.sub(r"&#\d+;", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
 def extract_fuel_price(text, fuel_word):
-    pattern = rf"{fuel_word} price in Hyderabad (?:is at|stands at) ₹\s*([\d.]+)"
-    m = re.search(pattern, text, re.IGNORECASE)
-    return float(m.group(1)) if m else None
+    patterns = [
+        rf"{fuel_word} price in Hyderabad (?:is at|stands at) (?:₹|Rs\.?)\s*([\d.]+)",
+        rf"{fuel_word} price.{{0,30}}?Hyderabad.{{0,30}}?(?:₹|Rs\.?)\s*([\d.]+)",
+        rf"(?:₹|Rs\.?)\s*([\d.]+)\s*per litre",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
 
 
 def github_get(path, token):
