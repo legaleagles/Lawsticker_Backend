@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 REPO = "legaleagles/LabourLaw2"
 CONFIG_FILE = "site-config.json"
+NEWS_FILE = "news-feed.json"
 STATE_FILE = "daily-digest-state.json"
 GITHUB_API = "https://api.github.com"
 
@@ -126,7 +127,11 @@ def arrow(current, previous):
     return " ➖ no change"
 
 
-def build_message(petrol, diesel, gold, silver, prev):
+def escape_html(text):
+    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def build_message(petrol, diesel, gold, silver, prev, news_categories):
     today = datetime.now(timezone.utc).strftime("%d %B %Y")
     lines = []
     lines.append(f"📊 <b>Today's Rates — {today}</b>")
@@ -136,7 +141,29 @@ def build_message(petrol, diesel, gold, silver, prev):
     lines.append("")
     lines.append(f"🥇 <b>Gold</b> (24K): ₹{gold}/gram{arrow(gold, prev.get('gold'))}")
     lines.append(f"🥈 <b>Silver</b> (999): ₹{silver}/gram{arrow(silver, prev.get('silver'))}")
+
+    news_labels = [
+        ("legal", "⚖️ Legal"),
+        ("regional", "📍 Regional"),
+        ("national", "🇮🇳 National"),
+        ("international", "🌍 World"),
+    ]
+    headline_lines = []
+    for key, label in news_labels:
+        articles = (news_categories or {}).get(key) or []
+        if articles:
+            top = articles[0]
+            title = escape_html(top.get("title", ""))
+            link = top.get("link", "")
+            headline_lines.append(f'{label}: <a href="{link}">{title}</a>')
+
+    if headline_lines:
+        lines.append("")
+        lines.append("📰 <b>Today's Headlines</b>")
+        lines.extend(headline_lines)
+
     lines.append("")
+    lines.append("🔗 More news: lawsticker-ai.com/news.html")
     lines.append("🔗 More tools: lawsticker-ai.com/calculators.html")
     return "\n".join(lines)
 
@@ -173,7 +200,13 @@ class handler(BaseHTTPRequestHandler):
             state, sha = github_get(STATE_FILE, site_token)
             prev = state or {}
 
-            message = build_message(petrol, diesel, gold, silver, prev)
+            try:
+                news_data, _ = github_get(NEWS_FILE, site_token)
+                news_categories = (news_data or {}).get("categories", {})
+            except Exception:
+                news_categories = {}
+
+            message = build_message(petrol, diesel, gold, silver, prev, news_categories)
             results = send_telegram_to_all(bot_token, chat_id, message)
             telegram_sent = all(v == "sent" for v in results.values())
 
