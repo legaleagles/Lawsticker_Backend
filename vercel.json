@@ -7,7 +7,8 @@
     { "src": "api/lawcet-news-watch.py", "use": "@vercel/python" },
     { "src": "api/daily-digest.py", "use": "@vercel/python" },
     { "src": "api/visit-digest.py", "use": "@vercel/python" },
-    { "src": "api/news-digest.py", "use": "@vercel/python" }
+    { "src": "api/news-digest.py", "use": "@vercel/python" },
+    { "src": "api/news-digest-i18n.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/wall-of-fame", "dest": "api/wall-of-fame.py" },
@@ -17,7 +18,8 @@
     { "src": "/api/lawcet-news-watch", "dest": "api/lawcet-news-watch.py" },
     { "src": "/api/daily-digest", "dest": "api/daily-digest.py" },
     { "src": "/api/visit-digest", "dest": "api/visit-digest.py" },
-    { "src": "/api/news-digest", "dest": "api/news-digest.py" }
+    { "src": "/api/news-digest", "dest": "api/news-digest.py" },
+    { "src": "/api/news-digest-i18n", "dest": "api/news-digest-i18n.py" }
   ],
   "crons": [
     {
