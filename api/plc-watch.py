@@ -136,6 +136,23 @@ class handler(BaseHTTPRequestHandler):
             self._respond(500, {"ok": False, "error": "Server misconfiguration — missing env vars."})
             return
 
+        # Isolated diagnostic mode: /api/plc-watch?force_test=1
+        # Skips ALL state-file / change-detection logic entirely and just
+        # attempts a real Telegram send right now, reporting exactly what
+        # the CURRENTLY DEPLOYED TELEGRAM_CHAT_ID value actually is and
+        # whether sending to it succeeds. No race conditions, no timing
+        # confusion — one clean, single-purpose check.
+        query = self.path.split("?", 1)[1] if "?" in self.path else ""
+        if "force_test=1" in query:
+            results = send_telegram_to_all(bot_token, chat_id, "🧪 Direct test from the deployed plc-watch script itself.")
+            self._respond(200, {
+                "mode": "force_test",
+                "chat_id_env_value_repr": repr(chat_id),
+                "bot_token_last6": bot_token[-6:] if bot_token else None,
+                "send_results": results,
+            })
+            return
+
         try:
             page_text = fetch_page_text(WATCH_URL)
             current_hash = hashlib.sha256(page_text.encode()).hexdigest()
