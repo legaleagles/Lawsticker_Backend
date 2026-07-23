@@ -103,6 +103,29 @@ def send_telegram(bot_token, chat_id, text):
         return resp.status
 
 
+def send_telegram_to_all(bot_token, chat_id_config, text):
+    """
+    TELEGRAM_CHAT_ID may contain a single ID or several separated by commas
+    (e.g. "860974810,618755571") so multiple people can be alerted from one
+    variable. Sends to each independently — one person's ID being wrong
+    doesn't block the others from getting the message.
+    """
+    chat_ids = [c.strip() for c in chat_id_config.split(",") if c.strip()]
+    results = {}
+    for cid in chat_ids:
+        try:
+            send_telegram(bot_token, cid, text)
+            results[cid] = "sent"
+        except urllib.error.HTTPError as e:
+            try:
+                results[cid] = e.read().decode()
+            except Exception:
+                results[cid] = str(e)
+        except Exception as e:
+            results[cid] = str(e)
+    return results
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         site_token = os.environ.get("SITE_REPO_TOKEN")
@@ -138,15 +161,9 @@ class handler(BaseHTTPRequestHandler):
                         + snippet
                     )
                 try:
-                    send_telegram(bot_token, chat_id, message)
-                    telegram_sent = True
-                    telegram_error = None
-                except urllib.error.HTTPError as e:
-                    telegram_sent = False
-                    try:
-                        telegram_error = e.read().decode()
-                    except Exception:
-                        telegram_error = str(e)
+                    telegram_results = send_telegram_to_all(bot_token, chat_id, message)
+                    telegram_sent = all(v == "sent" for v in telegram_results.values())
+                    telegram_error = None if telegram_sent else telegram_results
                 except Exception as e:
                     telegram_sent = False
                     telegram_error = str(e)
