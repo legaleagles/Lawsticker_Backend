@@ -25,7 +25,7 @@ import urllib.error
 REPO = "legaleagles/LabourLaw2"
 PULSE_FILE = "pulse-counts.json"
 GITHUB_API = "https://api.github.com"
-VALID_TYPES = {"badge", "trick"}
+VALID_TYPES = {"badge", "trick", "visit"}
 
 
 def github_get(path, token):
@@ -93,11 +93,12 @@ class handler(BaseHTTPRequestHandler):
         try:
             counts, _ = github_get(PULSE_FILE, token)
             if counts is None:
-                counts = {"badges_total": 0, "tricks_total": 0}
+                counts = {"badges_total": 0, "tricks_total": 0, "visits_total": 0}
             self._respond(200, {
                 "ok": True,
                 "badges_total": counts.get("badges_total", 0),
                 "tricks_total": counts.get("tricks_total", 0),
+                "visits_total": counts.get("visits_total", 0),
             })
         except Exception:
             self._respond(500, {"ok": False, "error": "Could not read counts."})
@@ -124,9 +125,10 @@ class handler(BaseHTTPRequestHandler):
         try:
             counts, sha = github_get(PULSE_FILE, token)
             if counts is None:
-                counts = {"badges_total": 0, "tricks_total": 0}
+                counts = {"badges_total": 0, "tricks_total": 0, "visits_total": 0}
 
-            key = "badges_total" if event_type == "badge" else "tricks_total"
+            key_map = {"badge": "badges_total", "trick": "tricks_total", "visit": "visits_total"}
+            key = key_map[event_type]
             counts[key] = counts.get(key, 0) + 1
 
             github_put(PULSE_FILE, token, counts, sha, f"Pulse: +1 {event_type}")
@@ -134,6 +136,7 @@ class handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "badges_total": counts.get("badges_total", 0),
                 "tricks_total": counts.get("tricks_total", 0),
+                "visits_total": counts.get("visits_total", 0),
             })
         except Exception:
             # A failed ping should never be visible to the user or block their
