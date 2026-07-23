@@ -31,7 +31,7 @@ GITHUB_API = "https://api.github.com"
 NEWSDATA_BASE = "https://newsdata.io/api/1/latest"
 
 QUERIES = {
-    "legal": {"q": "\"Supreme Court\" OR \"High Court\" OR judgment OR verdict OR legislation OR tribunal OR \"consumer court\"", "country": "in", "language": "en"},
+    "legal": {"q": "court OR judgment OR verdict OR legislation OR tribunal", "country": "in", "language": "en"},
     "regional": {"q": "Hyderabad OR Telangana", "country": "in", "language": "en"},
     "national": {"country": "in", "language": "en"},
     "international": {"language": "en", "excludecountry": "in"},
@@ -112,6 +112,12 @@ class handler(BaseHTTPRequestHandler):
                     else:
                         errors[category] = raw.get("results", {}).get("message", "Unknown API error")
                         feed[category] = []
+                except urllib.error.HTTPError as e:
+                    try:
+                        errors[category] = e.read().decode()
+                    except Exception:
+                        errors[category] = str(e)
+                    feed[category] = []
                 except Exception as e:
                     errors[category] = str(e)
                     feed[category] = []
