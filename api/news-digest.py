@@ -31,6 +31,7 @@ GITHUB_API = "https://api.github.com"
 NEWSDATA_BASE = "https://newsdata.io/api/1/latest"
 
 QUERIES = {
+    "legal": {"q": "\"Supreme Court\" OR \"High Court\" OR judgment OR verdict OR legislation OR tribunal OR \"consumer court\"", "country": "in", "language": "en"},
     "regional": {"q": "Hyderabad OR Telangana", "country": "in", "language": "en"},
     "national": {"country": "in", "language": "en"},
     "international": {"language": "en", "excludecountry": "in"},
@@ -46,7 +47,7 @@ def fetch_news(api_key, params):
         return json.loads(resp.read().decode())
 
 
-def extract_articles(api_response, limit=6):
+def extract_articles(api_response, limit=8):
     articles = []
     for item in (api_response.get("results") or [])[:limit]:
         articles.append({
@@ -56,6 +57,7 @@ def extract_articles(api_response, limit=6):
             "pubDate": item.get("pubDate", ""),
             "image_url": item.get("image_url"),
             "description": (item.get("description") or "")[:180],
+            "category": item.get("category") or [],
         })
     return articles
 
