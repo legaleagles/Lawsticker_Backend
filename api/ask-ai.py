@@ -59,7 +59,14 @@ STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to
              "it", "this", "that", "be", "have", "has", "will", "should", "would", "am"}
 
 
-def filter_relevant_entries(question, entries, max_entries=10):
+TOPIC_PAGE_MAP = {
+    "consumer": "rights-consumer", "property": "rights-property", "family": "rights-family",
+    "health": "rights-health", "digital": "rights-digital", "farmer": "rights-farmer",
+    "personal": "rights-personal", "student": "rights-student",
+}
+
+
+def filter_relevant_entries(question, entries, topic=None, max_entries=10):
     """
     Sending all 27 knowledge-base entries on every request makes the prompt
     unnecessarily large, which slows Gemini's response time and makes it
@@ -68,9 +75,18 @@ def filter_relevant_entries(question, entries, max_entries=10):
     most relevant ones, falling back to everything if nothing scores well
     (e.g. a very short or unusual question) so real coverage never
     regresses because of this shortcut.
+
+    When the user picked a topic button on the page, that's a stronger
+    signal than keyword guessing — entries from that page are prioritized
+    to the front, ahead of whatever the keyword scoring finds elsewhere.
     """
+    topic_page = TOPIC_PAGE_MAP.get(topic) if topic else None
+
     q_words = {w for w in question.lower().split() if w not in STOPWORDS and len(w) > 2}
     if not q_words:
+        if topic_page:
+            topic_entries = [e for e in entries if e["source_page"] == topic_page]
+            return topic_entries[:max_entries] if topic_entries else entries[:max_entries]
         return entries[:max_entries]
 
     scored = []
@@ -79,6 +95,8 @@ def filter_relevant_entries(question, entries, max_entries=10):
             e["title"].get("en", ""), e["tag"].get("en", ""), e["body"].get("en", ""),
         ]).lower()
         score = sum(1 for w in q_words if w in text)
+        if topic_page and e["source_page"] == topic_page:
+            score += 5  # strong boost for the page the user explicitly selected
         scored.append((score, e))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -197,6 +215,7 @@ class handler(BaseHTTPRequestHandler):
                 lang = "en"
             image_base64 = body.get("image_base64")
             image_mime_type = body.get("image_mime_type")
+            topic = body.get("topic")
 
             if not question and not image_base64:
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
@@ -208,7 +227,7 @@ class handler(BaseHTTPRequestHandler):
             if image_base64:
                 prompt = build_bill_prompt(entries, lang)
             else:
-                relevant_entries = filter_relevant_entries(question, entries)
+                relevant_entries = filter_relevant_entries(question, entries, topic)
                 prompt = build_prompt(question, relevant_entries, lang)
 
             try:
