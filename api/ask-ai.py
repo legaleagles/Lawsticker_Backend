@@ -60,15 +60,18 @@ STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to
 
 
 TOPIC_PAGE_MAP = {
-    "consumer": "rights-consumer", "property": "rights-property", "family": "rights-family",
-    "health": "rights-health", "digital": "rights-digital", "farmer": "rights-farmer",
-    "personal": "rights-personal", "student": "rights-student",
+    "consumer": ["rights-consumer"], "property": ["rights-property"], "family": ["rights-family"],
+    "health": ["rights-health"], "digital": ["rights-digital"], "farmer": ["rights-farmer"],
+    "personal": ["rights-personal"], "student": ["rights-student"],
+    "lawcet": ["lawcet"],
+    "calculators": ["limitation-calc", "court-fee-calc", "chit-fund-calc", "electricity-calc",
+                     "gold-loan-calc", "eligibility-calculator"],
 }
 
 
 def filter_relevant_entries(question, entries, topic=None, max_entries=10):
     """
-    Sending all 27 knowledge-base entries on every request makes the prompt
+    Sending all knowledge-base entries on every request makes the prompt
     unnecessarily large, which slows Gemini's response time and makes it
     more likely to bump against the function's time budget. This scores
     entries by simple keyword overlap with the question and keeps only the
@@ -77,15 +80,16 @@ def filter_relevant_entries(question, entries, topic=None, max_entries=10):
     regresses because of this shortcut.
 
     When the user picked a topic button on the page, that's a stronger
-    signal than keyword guessing — entries from that page are prioritized
-    to the front, ahead of whatever the keyword scoring finds elsewhere.
+    signal than keyword guessing — entries from those page(s) are
+    prioritized to the front, ahead of whatever the keyword scoring finds
+    elsewhere.
     """
-    topic_page = TOPIC_PAGE_MAP.get(topic) if topic else None
+    topic_pages = set(TOPIC_PAGE_MAP.get(topic, [])) if topic else set()
 
     q_words = {w for w in question.lower().split() if w not in STOPWORDS and len(w) > 2}
     if not q_words:
-        if topic_page:
-            topic_entries = [e for e in entries if e["source_page"] == topic_page]
+        if topic_pages:
+            topic_entries = [e for e in entries if e["source_page"] in topic_pages]
             return topic_entries[:max_entries] if topic_entries else entries[:max_entries]
         return entries[:max_entries]
 
@@ -95,8 +99,8 @@ def filter_relevant_entries(question, entries, topic=None, max_entries=10):
             e["title"].get("en", ""), e["tag"].get("en", ""), e["body"].get("en", ""),
         ]).lower()
         score = sum(1 for w in q_words if w in text)
-        if topic_page and e["source_page"] == topic_page:
-            score += 5  # strong boost for the page the user explicitly selected
+        if e["source_page"] in topic_pages:
+            score += 5  # strong boost for the page(s) the user explicitly selected
         scored.append((score, e))
 
     scored.sort(key=lambda x: x[0], reverse=True)
