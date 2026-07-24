@@ -103,29 +103,49 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
+            existing, sha = github_get(NEWS_FILE, site_token)
+            existing = existing or {}
+            previous_categories = existing.get("categories", {})
+
             feed = {}
             errors = {}
+            stale = []
             for category, params in QUERIES.items():
                 try:
                     raw = fetch_news(newsdata_key, params)
                     if raw.get("status") == "success":
-                        feed[category] = extract_articles(raw)
+                        articles = extract_articles(raw)
+                        # A "success" response with zero articles is treated the
+                        # same as a failure for preservation purposes — no real
+                        # new data means keep showing what was already there.
+                        if articles:
+                            feed[category] = articles
+                        else:
+                            feed[category] = previous_categories.get(category, [])
+                            stale.append(category)
                     else:
                         errors[category] = raw.get("results", {}).get("message", "Unknown API error")
-                        feed[category] = []
+                        feed[category] = previous_categories.get(category, [])
+                        stale.append(category)
                 except urllib.error.HTTPError as e:
                     try:
                         errors[category] = e.read().decode()
                     except Exception:
                         errors[category] = str(e)
-                    feed[category] = []
+                    feed[category] = previous_categories.get(category, [])
+                    stale.append(category)
                 except Exception as e:
                     errors[category] = str(e)
-                    feed[category] = []
+                    feed[category] = previous_categories.get(category, [])
+                    stale.append(category)
 
-            existing, sha = github_get(NEWS_FILE, site_token)
-            output = dict(existing) if existing else {}
-            output["updated_at"] = datetime.now(timezone.utc).isoformat()
+            output = dict(existing)
+            # Only bump "updated_at" if at least one category actually got
+            # fresh data this run — otherwise leave it as whenever the site
+            # was last genuinely refreshed, so the "X ago" label on the site
+            # stays honest instead of claiming to be current when it isn't.
+            if len(stale) < len(QUERIES):
+                output["updated_at"] = datetime.now(timezone.utc).isoformat()
             output["categories"] = feed
             # categories_te / categories_hi (written by the separate multilingual
             # script on its own schedule) are deliberately left untouched here.
@@ -133,7 +153,7 @@ class handler(BaseHTTPRequestHandler):
             github_put(NEWS_FILE, site_token, output, sha, "News digest update")
 
             total = sum(len(v) for v in feed.values())
-            self._respond(200, {"ok": True, "total_articles": total, "counts": {k: len(v) for k, v in feed.items()}, "errors": errors or None})
+            self._respond(200, {"ok": True, "total_articles": total, "counts": {k: len(v) for k, v in feed.items()}, "stale_categories": stale or None, "errors": errors or None})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
