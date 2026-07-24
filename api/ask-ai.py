@@ -68,6 +68,13 @@ TOPIC_PAGE_MAP = {
                      "gold-loan-calc", "eligibility-calculator"],
 }
 
+TOPIC_LABELS = {
+    "consumer": "Consumer Rights", "property": "Property Rights", "family": "Family Rights",
+    "health": "Health Rights", "digital": "Digital Rights", "farmer": "Farmer Rights",
+    "personal": "Personal Rights", "student": "Student Rights",
+    "lawcet": "LAWCET Counselling", "calculators": "Site Calculators",
+}
+
 
 def filter_relevant_entries(question, entries, topic=None, prev_question=None, max_entries=10):
     """
@@ -114,7 +121,7 @@ def filter_relevant_entries(question, entries, topic=None, prev_question=None, m
     return relevant if relevant else entries[:max_entries]
 
 
-def build_prompt(question, entries, lang, prev_question=None, prev_answer=None):
+def build_prompt(question, entries, lang, prev_question=None, prev_answer=None, topic_label=None):
     lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
     context_blocks = []
     for e in entries:
@@ -123,7 +130,13 @@ def build_prompt(question, entries, lang, prev_question=None, prev_answer=None):
         context_blocks.append(f"[Source: {e['source_page']}]\nTitle: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    conversation_block = ""
+    topic_block = ""
+    if topic_label:
+        topic_block = f"""
+ACTIVE TOPIC: The user selected "{topic_label}" as what they want to discuss. If the new question is clearly and obviously about something else entirely (not a related follow-up, not this topic phrased differently), do NOT answer it — instead reply only with a brief, friendly note that this chat is currently focused on {topic_label}, and ask whether they'd like to switch topics or ask something related to {topic_label} instead. If the question is genuinely related to {topic_label} (even loosely), answer normally.
+"""
+
+    conversation_block = "" 
     if prev_question and prev_answer:
         # Trimmed to keep prompt size bounded — enough for Gemini to resolve
         # "explain more", "what about that" style follow-ups without the
@@ -135,7 +148,7 @@ Previous answer: {prev_answer[:600]}
 """
 
     prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
-{conversation_block}
+{topic_block}{conversation_block}
 Answer using the APPROVED CONTENT below wherever it's relevant. For anything the approved content doesn't cover, you may still help using your own general knowledge of Indian law — the line that matters is NOT the topic, it's the type of claim within your answer:
 
 - SPECIFIC CLAIMS (exact numbers, deadlines, fees, compensation amounts, section numbers, filing procedures, forms) must ONLY ever come from the APPROVED CONTENT below. Never invent or infer a specific figure or deadline that isn't stated there.
@@ -253,7 +266,7 @@ class handler(BaseHTTPRequestHandler):
                 prompt = build_bill_prompt(entries, lang)
             else:
                 relevant_entries = filter_relevant_entries(question, entries, topic, prev_question)
-                prompt = build_prompt(question, relevant_entries, lang, prev_question, prev_answer)
+                prompt = build_prompt(question, relevant_entries, lang, prev_question, prev_answer, TOPIC_LABELS.get(topic))
 
             try:
                 answer = call_gemini(gemini_key, prompt, image_base64, image_mime_type)
