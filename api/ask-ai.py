@@ -85,12 +85,15 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         site_token = os.environ.get("SITE_REPO_TOKEN")
         gemini_key = os.environ.get("GEMINI_API_KEY")
+        all_keys_with_gemini_or_api = [k for k in os.environ.keys() if "GEMINI" in k.upper() or "API" in k.upper()]
         self._respond(200, {
             "diagnostic": True,
             "site_token_present": bool(site_token),
-            "gemini_key_present": bool(gemini_key),
-            "gemini_key_repr": repr(gemini_key)[:20] if gemini_key else None,
-            "gemini_key_last6": gemini_key[-6:] if gemini_key else None,
+            "gemini_key_is_none": gemini_key is None,
+            "gemini_key_is_empty_string": gemini_key == "",
+            "gemini_key_length": len(gemini_key) if gemini_key is not None else None,
+            "gemini_key_repr": repr(gemini_key)[:15] if gemini_key else repr(gemini_key),
+            "matching_env_var_names": all_keys_with_gemini_or_api,
         })
 
     def do_POST(self):
