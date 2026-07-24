@@ -30,17 +30,17 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 MAX_QUESTION_LEN = 500
 
 
-def github_get_raw(path, token):
+def github_get_raw(path, token, timeout=15):
     req = urllib.request.Request(
         f"{GITHUB_API}/repos/{REPO}/contents/{path}",
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode())
         return json.loads(base64.b64decode(data["content"]).decode()), data["sha"]
 
 
-def github_put(path, token, content_obj, sha, message):
+def github_put(path, token, content_obj, sha, message, timeout=15):
     body = json.dumps(content_obj, indent=2, ensure_ascii=False).encode()
     payload = {"message": message, "content": base64.b64encode(body).decode(), "branch": "main"}
     if sha:
@@ -51,21 +51,28 @@ def github_put(path, token, content_obj, sha, message):
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
         method="PUT",
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.status
 
 
-def log_question(token, question, lang, answer_mode):
+def log_question(token, question, lang, answer_mode, seconds_elapsed):
     """
     Appends each question (and how it was answered) to a running log, so
     real demand data — not guesswork — can guide which topics to add to
     the knowledge base next. No IP, session, or other identifying data is
     stored; the site has no user accounts, so this is anonymous by design.
-    Logging failures are swallowed deliberately — a broken log write must
-    never break the actual answer being returned to the user.
+
+    Vercel's free tier kills the whole function at 10 seconds no matter
+    what — so logging is skipped entirely once the Gemini call has already
+    used up most of that budget, and uses tight 2s timeouts of its own the
+    rest of the time. Getting an answer to the user always outranks
+    getting a log entry; a slow or failed log write must never cost
+    someone their actual answer.
     """
+    if seconds_elapsed > 5:
+        return
     try:
-        existing, sha = github_get_raw(LOG_FILE, token)
+        existing, sha = github_get_raw(LOG_FILE, token, timeout=2)
         entries = existing.get("entries", [])
     except Exception:
         entries, sha = [], None
@@ -77,7 +84,7 @@ def log_question(token, question, lang, answer_mode):
     })
     entries = entries[-500:]  # keep the log bounded
     try:
-        github_put(LOG_FILE, token, {"entries": entries}, sha, "Log Ask AI question")
+        github_put(LOG_FILE, token, {"entries": entries}, sha, "Log Ask AI question", timeout=2)
     except Exception:
         pass
 
@@ -162,7 +169,7 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as resp:
+    with urllib.request.urlopen(req, timeout=6) as resp:
         result = json.loads(resp.read().decode())
     try:
         return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -172,6 +179,9 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        import time
+        start_time = time.monotonic()
+
         site_token = os.environ.get("SITE_REPO_TOKEN")
         gemini_key = os.environ.get("GEMINI_API_KEY")
 
@@ -193,7 +203,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
                 return
 
-            kb, _ = github_get_raw(KB_FILE, site_token)
+            kb, _ = github_get_raw(KB_FILE, site_token, timeout=3)
             entries = kb.get("entries", [])
 
             if image_base64:
@@ -207,6 +217,9 @@ class handler(BaseHTTPRequestHandler):
                 error_body = e.read().decode()
                 self._respond(200, {"ok": False, "error": f"AI service error: {error_body[:300]}"})
                 return
+            except TimeoutError:
+                self._respond(200, {"ok": False, "error": "AI service took too long to respond."})
+                return
 
             if answer is None:
                 self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
@@ -218,9 +231,14 @@ class handler(BaseHTTPRequestHandler):
                 answer_mode = "verified"
             else:
                 answer_mode = "not_covered"
-            log_question(site_token, question or "(bill upload)", lang, answer_mode)
 
+            # Send the answer first — logging happens after, and never at
+            # the cost of delaying or risking the actual response.
             self._respond(200, {"ok": True, "answer": answer})
+
+            elapsed = time.monotonic() - start_time
+            log_question(site_token, question or "(bill upload)", lang, answer_mode, elapsed)
+            return
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
