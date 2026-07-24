@@ -1,25 +1,87 @@
 {
   "builds": [
-    { "src": "api/wall-of-fame.py", "use": "@vercel/python" },
-    { "src": "api/update-gold-rate.py", "use": "@vercel/python" },
-    { "src": "api/pulse.py", "use": "@vercel/python" },
-    { "src": "api/plc-watch.py", "use": "@vercel/python" },
-    { "src": "api/lawcet-news-watch.py", "use": "@vercel/python" },
-    { "src": "api/daily-digest.py", "use": "@vercel/python" },
-    { "src": "api/visit-digest.py", "use": "@vercel/python" },
-    { "src": "api/news-digest.py", "use": "@vercel/python" },
-    { "src": "api/news-digest-i18n.py", "use": "@vercel/python" }
+    {
+      "src": "api/wall-of-fame.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/update-gold-rate.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/pulse.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/plc-watch.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/lawcet-news-watch.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/daily-digest.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/visit-digest.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/news-digest.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/news-digest-i18n.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/ask-ai.py",
+      "use": "@vercel/python"
+    }
   ],
   "routes": [
-    { "src": "/api/wall-of-fame", "dest": "api/wall-of-fame.py" },
-    { "src": "/api/update-gold-rate", "dest": "api/update-gold-rate.py" },
-    { "src": "/api/pulse", "dest": "api/pulse.py" },
-    { "src": "/api/plc-watch", "dest": "api/plc-watch.py" },
-    { "src": "/api/lawcet-news-watch", "dest": "api/lawcet-news-watch.py" },
-    { "src": "/api/daily-digest", "dest": "api/daily-digest.py" },
-    { "src": "/api/visit-digest", "dest": "api/visit-digest.py" },
-    { "src": "/api/news-digest", "dest": "api/news-digest.py" },
-    { "src": "/api/news-digest-i18n", "dest": "api/news-digest-i18n.py" }
+    {
+      "src": "/api/wall-of-fame",
+      "dest": "api/wall-of-fame.py"
+    },
+    {
+      "src": "/api/update-gold-rate",
+      "dest": "api/update-gold-rate.py"
+    },
+    {
+      "src": "/api/pulse",
+      "dest": "api/pulse.py"
+    },
+    {
+      "src": "/api/plc-watch",
+      "dest": "api/plc-watch.py"
+    },
+    {
+      "src": "/api/lawcet-news-watch",
+      "dest": "api/lawcet-news-watch.py"
+    },
+    {
+      "src": "/api/daily-digest",
+      "dest": "api/daily-digest.py"
+    },
+    {
+      "src": "/api/visit-digest",
+      "dest": "api/visit-digest.py"
+    },
+    {
+      "src": "/api/news-digest",
+      "dest": "api/news-digest.py"
+    },
+    {
+      "src": "/api/news-digest-i18n",
+      "dest": "api/news-digest-i18n.py"
+    },
+    {
+      "src": "/api/ask-ai",
+      "dest": "api/ask-ai.py"
+    }
   ],
   "crons": [
     {
