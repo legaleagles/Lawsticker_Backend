@@ -74,7 +74,7 @@ def build_bill_prompt(entries, lang):
         context_blocks.append(f"Title: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    prompt = f"""You are looking at a photo of a restaurant/shop bill for a visitor to LawSticker AI, an Indian consumer-rights education website.
+    prompt = f"""You are looking at an uploaded restaurant/shop bill (photo or document) for a visitor to LawSticker AI, an Indian consumer-rights education website.
 
 Using ONLY the approved consumer-rights content below, check the bill for common issues and explain what you find in plain, practical language:
 - Is there a "service charge" line item? If so, note that service charge is optional in India (per CCPA Guidelines 2022) and the customer can ask for it to be removed.
