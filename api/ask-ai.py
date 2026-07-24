@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 
 REPO = "legaleagles/LabourLaw2"
 KB_FILE = "knowledge-base.json"
-LOG_FILE = "ask-ai-log.json"
 GITHUB_API = "https://api.github.com"
 GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -53,40 +52,6 @@ def github_put(path, token, content_obj, sha, message, timeout=15):
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.status
-
-
-def log_question(token, question, lang, answer_mode, seconds_elapsed):
-    """
-    Appends each question (and how it was answered) to a running log, so
-    real demand data — not guesswork — can guide which topics to add to
-    the knowledge base next. No IP, session, or other identifying data is
-    stored; the site has no user accounts, so this is anonymous by design.
-
-    Vercel's free tier kills the whole function at 10 seconds no matter
-    what — so logging is skipped entirely once the Gemini call has already
-    used up most of that budget, and uses tight 2s timeouts of its own the
-    rest of the time. Getting an answer to the user always outranks
-    getting a log entry; a slow or failed log write must never cost
-    someone their actual answer.
-    """
-    if seconds_elapsed > 5:
-        return
-    try:
-        existing, sha = github_get_raw(LOG_FILE, token, timeout=2)
-        entries = existing.get("entries", [])
-    except Exception:
-        entries, sha = [], None
-    entries.append({
-        "question": question,
-        "lang": lang,
-        "answer_mode": answer_mode,  # "verified", "general_knowledge", or "not_covered"
-        "at": datetime.now(timezone.utc).isoformat(),
-    })
-    entries = entries[-500:]  # keep the log bounded
-    try:
-        github_put(LOG_FILE, token, {"entries": entries}, sha, "Log Ask AI question", timeout=2)
-    except Exception:
-        pass
 
 
 def build_prompt(question, entries, lang):
@@ -179,9 +144,6 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        import time
-        start_time = time.monotonic()
-
         site_token = os.environ.get("SITE_REPO_TOKEN")
         gemini_key = os.environ.get("GEMINI_API_KEY")
 
@@ -225,20 +187,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
                 return
 
-            if "[General Knowledge]" in answer:
-                answer_mode = "general_knowledge"
-            elif "[Source:" in answer:
-                answer_mode = "verified"
-            else:
-                answer_mode = "not_covered"
-
-            # Send the answer first — logging happens after, and never at
-            # the cost of delaying or risking the actual response.
             self._respond(200, {"ok": True, "answer": answer})
-
-            elapsed = time.monotonic() - start_time
-            log_question(site_token, question or "(bill upload)", lang, answer_mode, elapsed)
-            return
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
