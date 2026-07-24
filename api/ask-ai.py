@@ -97,24 +97,22 @@ def build_prompt(question, entries, lang):
 
     prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
 
-FIRST, classify the question into one of two types:
+Answer using the APPROVED CONTENT below wherever it's relevant. For anything the approved content doesn't cover, you may still help using your own general knowledge of Indian law — the line that matters is NOT the topic, it's the type of claim within your answer:
 
-TYPE A — Specific/actionable (deadlines, fees, compensation amounts, filing procedures, forms, specific legal provisions or section numbers, "what should I do about my situation"): 
-- Answer ONLY using the APPROVED CONTENT below. Never invent or infer a specific number, deadline, or procedure not stated there.
-- If the approved content does not cover it, say so honestly and suggest a qualified professional or legal aid clinic. Do not guess.
-- End with: [Source: page-name] (the exact page name from the content used).
+- SPECIFIC CLAIMS (exact numbers, deadlines, fees, compensation amounts, section numbers, filing procedures, forms) must ONLY ever come from the APPROVED CONTENT below. Never invent or infer a specific figure or deadline that isn't stated there.
+- GENERAL GUIDANCE (what kind of remedy exists, which body to approach, broad concepts, what a law is generally about) can come from your own knowledge of Indian law when the approved content doesn't cover the topic — this is genuinely useful even without site-verified specifics.
 
-TYPE B — Conceptual/definitional ("what is X", "what does Y mean", general understanding questions with no specific number or deadline at stake):
-- Prefer the APPROVED CONTENT if it covers the concept.
-- If it doesn't, you may answer briefly from your own general knowledge of Indian law — but you MUST clearly say this is general knowledge, not verified content from this site.
-- End that kind of answer with exactly: [General Knowledge] instead of a Source tag.
+Decide per answer, honestly, which case you're in:
+- If your answer relies only on the APPROVED CONTENT (even if you also add general context around it), end with: [Source: page-name] (the exact page name from the content used).
+- If any part of your answer draws on your own general knowledge because the approved content didn't cover it, end with exactly: [General Knowledge] instead — and say plainly in the answer that this part isn't from the site's verified content.
+- If you're not confident either way, say so honestly and suggest a professional or legal aid clinic. Do not guess at specific figures under any circumstances.
 
-If genuinely unsure which type applies, or unsure of the answer either way, say so honestly rather than guessing, and suggest a professional or legal aid clinic.
+IMPORTANT: Output ONLY the final answer itself. Do not show your classification, reasoning, or any meta-commentary about which case applies — the person should just see a clean, direct answer.
 
 RULES THAT APPLY EITHER WAY:
 - Answer in {lang_names.get(lang, "English")}.
 - Keep the answer concise and practical — a few sentences, not an essay.
-- Never blend unverified general knowledge into a Type A answer — specific numbers and deadlines must only ever come from approved content.
+- Never state a specific number, deadline, or amount that isn't in the approved content, even inside an otherwise general-knowledge answer.
 
 APPROVED CONTENT:
 {context}
@@ -162,7 +160,7 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
         # Output tokens cost roughly 6x input tokens — capping length keeps
         # both cost and response time predictable, and reinforces the
         # "concise, a few sentences" instruction already in the prompt.
-        "generationConfig": {"maxOutputTokens": 400},
+        "generationConfig": {"maxOutputTokens": 600},
     }).encode()
     req = urllib.request.Request(
         f"{GEMINI_URL}?key={api_key}",
