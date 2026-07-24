@@ -69,7 +69,7 @@ TOPIC_PAGE_MAP = {
 }
 
 
-def filter_relevant_entries(question, entries, topic=None, max_entries=10):
+def filter_relevant_entries(question, entries, topic=None, prev_question=None, max_entries=10):
     """
     Sending all knowledge-base entries on every request makes the prompt
     unnecessarily large, which slows Gemini's response time and makes it
@@ -83,10 +83,16 @@ def filter_relevant_entries(question, entries, topic=None, max_entries=10):
     signal than keyword guessing — entries from those page(s) are
     prioritized to the front, ahead of whatever the keyword scoring finds
     elsewhere.
+
+    A vague follow-up ("explain more", "tell me more about this") has
+    almost no useful keywords of its own — folding in the previous
+    question's keywords means the filter still lands on the same topic
+    instead of falling back to something unrelated.
     """
     topic_pages = set(TOPIC_PAGE_MAP.get(topic, [])) if topic else set()
 
-    q_words = {w for w in question.lower().split() if w not in STOPWORDS and len(w) > 2}
+    combined_text = question + (" " + prev_question if prev_question else "")
+    q_words = {w for w in combined_text.lower().split() if w not in STOPWORDS and len(w) > 2}
     if not q_words:
         if topic_pages:
             topic_entries = [e for e in entries if e["source_page"] in topic_pages]
@@ -108,7 +114,7 @@ def filter_relevant_entries(question, entries, topic=None, max_entries=10):
     return relevant if relevant else entries[:max_entries]
 
 
-def build_prompt(question, entries, lang):
+def build_prompt(question, entries, lang, prev_question=None, prev_answer=None):
     lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
     context_blocks = []
     for e in entries:
@@ -117,12 +123,25 @@ def build_prompt(question, entries, lang):
         context_blocks.append(f"[Source: {e['source_page']}]\nTitle: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
+    conversation_block = ""
+    if prev_question and prev_answer:
+        # Trimmed to keep prompt size bounded — enough for Gemini to resolve
+        # "explain more", "what about that" style follow-ups without the
+        # prompt growing indefinitely as a conversation continues.
+        conversation_block = f"""
+PREVIOUS EXCHANGE (for context — the new question may be a follow-up to this):
+Previous question: {prev_question[:300]}
+Previous answer: {prev_answer[:600]}
+"""
 
+    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
+{conversation_block}
 Answer using the APPROVED CONTENT below wherever it's relevant. For anything the approved content doesn't cover, you may still help using your own general knowledge of Indian law — the line that matters is NOT the topic, it's the type of claim within your answer:
 
 - SPECIFIC CLAIMS (exact numbers, deadlines, fees, compensation amounts, section numbers, filing procedures, forms) must ONLY ever come from the APPROVED CONTENT below. Never invent or infer a specific figure or deadline that isn't stated there.
 - GENERAL GUIDANCE (what kind of remedy exists, which body to approach, broad concepts, what a law is generally about) can come from your own knowledge of Indian law when the approved content doesn't cover the topic — this is genuinely useful even without site-verified specifics.
+
+If the new question is a vague follow-up (like "explain more", "tell me more about this"), interpret it in light of the PREVIOUS EXCHANGE above, not as a brand new standalone topic. If there's no previous exchange and the question is too vague to answer on its own, say so honestly rather than guessing at an unrelated topic.
 
 Decide per answer, honestly, which case you're in:
 - If your answer relies only on the APPROVED CONTENT (even if you also add general context around it), end with: [Source: page-name] (the exact page name from the content used).
@@ -220,6 +239,8 @@ class handler(BaseHTTPRequestHandler):
             image_base64 = body.get("image_base64")
             image_mime_type = body.get("image_mime_type")
             topic = body.get("topic")
+            prev_question = (body.get("previous_question") or "").strip()[:300] or None
+            prev_answer = (body.get("previous_answer") or "").strip()[:600] or None
 
             if not question and not image_base64:
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
@@ -231,8 +252,8 @@ class handler(BaseHTTPRequestHandler):
             if image_base64:
                 prompt = build_bill_prompt(entries, lang)
             else:
-                relevant_entries = filter_relevant_entries(question, entries, topic)
-                prompt = build_prompt(question, relevant_entries, lang)
+                relevant_entries = filter_relevant_entries(question, entries, topic, prev_question)
+                prompt = build_prompt(question, relevant_entries, lang, prev_question, prev_answer)
 
             try:
                 answer = call_gemini(gemini_key, prompt, image_base64, image_mime_type)
