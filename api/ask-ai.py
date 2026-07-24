@@ -63,9 +63,42 @@ USER QUESTION: {question}"""
     return prompt
 
 
-def call_gemini(api_key, prompt):
+def build_bill_prompt(entries, lang):
+    lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
+    context_blocks = []
+    for e in entries:
+        if e["source_page"] != "rights-consumer":
+            continue
+        title = e["title"].get(lang) or e["title"].get("en", "")
+        body = e["body"].get(lang) or e["body"].get("en", "")
+        context_blocks.append(f"Title: {title}\nContent: {body}")
+    context = "\n\n".join(context_blocks)
+
+    prompt = f"""You are looking at a photo of a restaurant/shop bill for a visitor to LawSticker AI, an Indian consumer-rights education website.
+
+Using ONLY the approved consumer-rights content below, check the bill for common issues and explain what you find in plain, practical language:
+- Is there a "service charge" line item? If so, note that service charge is optional in India (per CCPA Guidelines 2022) and the customer can ask for it to be removed.
+- Do the individual item prices and totals add up correctly? Point out any arithmetic mismatch you can actually see in the image.
+- Is there anything charged that looks unusual or unclearly labeled?
+
+STRICT RULES:
+- Only state legal facts that appear explicitly in the approved content below. Never invent legal information not stated here.
+- Only comment on what you can actually see in the image — do not guess at numbers you cannot read clearly.
+- Answer in {lang_names.get(lang, "English")}.
+- Keep it concise and practical.
+- End with: [Source: rights-consumer]
+
+APPROVED CONTENT:
+{context}"""
+    return prompt
+
+
+def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
+    parts = [{"text": prompt}]
+    if image_base64:
+        parts.append({"inline_data": {"mime_type": image_mime_type or "image/jpeg", "data": image_base64}})
     payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}]
+        "contents": [{"parts": parts}]
     }).encode()
     req = urllib.request.Request(
         f"{GEMINI_URL}?key={api_key}",
@@ -97,18 +130,23 @@ class handler(BaseHTTPRequestHandler):
             lang = body.get("lang", "en")
             if lang not in ("en", "te", "hi"):
                 lang = "en"
+            image_base64 = body.get("image_base64")
+            image_mime_type = body.get("image_mime_type")
 
-            if not question:
-                self._respond(400, {"ok": False, "error": "No question provided."})
+            if not question and not image_base64:
+                self._respond(400, {"ok": False, "error": "No question or image provided."})
                 return
 
             kb = github_get_raw(KB_FILE, site_token)
             entries = kb.get("entries", [])
 
-            prompt = build_prompt(question, entries, lang)
+            if image_base64:
+                prompt = build_bill_prompt(entries, lang)
+            else:
+                prompt = build_prompt(question, entries, lang)
 
             try:
-                answer = call_gemini(gemini_key, prompt)
+                answer = call_gemini(gemini_key, prompt, image_base64, image_mime_type)
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode()
                 self._respond(200, {"ok": False, "error": f"AI service error: {error_body[:300]}"})
