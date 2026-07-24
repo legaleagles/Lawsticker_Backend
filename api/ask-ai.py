@@ -134,7 +134,7 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=6) as resp:
+    with urllib.request.urlopen(req, timeout=7.5) as resp:
         result = json.loads(resp.read().decode())
     try:
         return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -165,7 +165,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
                 return
 
-            kb, _ = github_get_raw(KB_FILE, site_token, timeout=3)
+            kb, _ = github_get_raw(KB_FILE, site_token, timeout=1.5)
             entries = kb.get("entries", [])
 
             if image_base64:
