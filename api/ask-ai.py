@@ -177,7 +177,10 @@ class handler(BaseHTTPRequestHandler):
                 answer = call_gemini(gemini_key, prompt, image_base64, image_mime_type)
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode()
-                self._respond(200, {"ok": False, "error": f"AI service error: {error_body[:300]}"})
+                if e.code == 429:
+                    self._respond(200, {"ok": False, "error": f"BUSY_RIGHT_NOW: {error_body[:200]}"})
+                else:
+                    self._respond(200, {"ok": False, "error": f"AI service error: {error_body[:300]}"})
                 return
             except TimeoutError:
                 self._respond(200, {"ok": False, "error": "AI service took too long to respond."})
