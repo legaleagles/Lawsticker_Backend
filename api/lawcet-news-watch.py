@@ -169,7 +169,14 @@ class handler(BaseHTTPRequestHandler):
             }
             github_put(STATE_FILE, site_token, new_state, sha, "LAWCET news watch: " + ("change detected" if changed else "no change"))
 
-            self._respond(200, {"ok": True, "changed": changed, "telegram_sent": telegram_sent})
+            self._respond(200, {
+                "ok": True,
+                "changed": changed,
+                "telegram_sent": telegram_sent,
+                "debug_section_length": len(section),
+                "debug_section_content": section[:400],
+                "debug_full_text_length": len(full_text),
+            })
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
