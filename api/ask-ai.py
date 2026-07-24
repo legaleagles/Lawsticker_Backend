@@ -18,9 +18,11 @@ import os
 import base64
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
 
 REPO = "legaleagles/LabourLaw2"
 KB_FILE = "knowledge-base.json"
+LOG_FILE = "ask-ai-log.json"
 GITHUB_API = "https://api.github.com"
 GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -35,7 +37,49 @@ def github_get_raw(path, token):
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode())
-        return json.loads(base64.b64decode(data["content"]).decode())
+        return json.loads(base64.b64decode(data["content"]).decode()), data["sha"]
+
+
+def github_put(path, token, content_obj, sha, message):
+    body = json.dumps(content_obj, indent=2, ensure_ascii=False).encode()
+    payload = {"message": message, "content": base64.b64encode(body).decode(), "branch": "main"}
+    if sha:
+        payload["sha"] = sha
+    req = urllib.request.Request(
+        f"{GITHUB_API}/repos/{REPO}/contents/{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
+        method="PUT",
+    )
+    with urllib.request.urlopen(req) as resp:
+        return resp.status
+
+
+def log_question(token, question, lang, answer_mode):
+    """
+    Appends each question (and how it was answered) to a running log, so
+    real demand data — not guesswork — can guide which topics to add to
+    the knowledge base next. No IP, session, or other identifying data is
+    stored; the site has no user accounts, so this is anonymous by design.
+    Logging failures are swallowed deliberately — a broken log write must
+    never break the actual answer being returned to the user.
+    """
+    try:
+        existing, sha = github_get_raw(LOG_FILE, token)
+        entries = existing.get("entries", [])
+    except Exception:
+        entries, sha = [], None
+    entries.append({
+        "question": question,
+        "lang": lang,
+        "answer_mode": answer_mode,  # "verified", "general_knowledge", or "not_covered"
+        "at": datetime.now(timezone.utc).isoformat(),
+    })
+    entries = entries[-500:]  # keep the log bounded
+    try:
+        github_put(LOG_FILE, token, {"entries": entries}, sha, "Log Ask AI question")
+    except Exception:
+        pass
 
 
 def build_prompt(question, entries, lang):
@@ -47,14 +91,26 @@ def build_prompt(question, entries, lang):
         context_blocks.append(f"[Source: {e['source_page']}]\nTitle: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website. Answer ONLY using the approved content below, which comes from the site's own published, reviewed pages.
+    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
 
-STRICT RULES:
-- Only use facts, figures, deadlines, and legal provisions that appear explicitly in the content below. Never invent or infer legal information not stated here.
-- If the approved content does not cover the question, say so honestly and suggest the person consult a qualified professional or a legal aid clinic. Do not guess.
+FIRST, classify the question into one of two types:
+
+TYPE A — Specific/actionable (deadlines, fees, compensation amounts, filing procedures, forms, specific legal provisions or section numbers, "what should I do about my situation"): 
+- Answer ONLY using the APPROVED CONTENT below. Never invent or infer a specific number, deadline, or procedure not stated there.
+- If the approved content does not cover it, say so honestly and suggest a qualified professional or legal aid clinic. Do not guess.
+- End with: [Source: page-name] (the exact page name from the content used).
+
+TYPE B — Conceptual/definitional ("what is X", "what does Y mean", general understanding questions with no specific number or deadline at stake):
+- Prefer the APPROVED CONTENT if it covers the concept.
+- If it doesn't, you may answer briefly from your own general knowledge of Indian law — but you MUST clearly say this is general knowledge, not verified content from this site.
+- End that kind of answer with exactly: [General Knowledge] instead of a Source tag.
+
+If genuinely unsure which type applies, or unsure of the answer either way, say so honestly rather than guessing, and suggest a professional or legal aid clinic.
+
+RULES THAT APPLY EITHER WAY:
 - Answer in {lang_names.get(lang, "English")}.
 - Keep the answer concise and practical — a few sentences, not an essay.
-- Mention which page(s) the answer draws from at the end, in the format: [Source: page-name]
+- Never blend unverified general knowledge into a Type A answer — specific numbers and deadlines must only ever come from approved content.
 
 APPROVED CONTENT:
 {context}
@@ -137,7 +193,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
                 return
 
-            kb = github_get_raw(KB_FILE, site_token)
+            kb, _ = github_get_raw(KB_FILE, site_token)
             entries = kb.get("entries", [])
 
             if image_base64:
@@ -155,6 +211,14 @@ class handler(BaseHTTPRequestHandler):
             if answer is None:
                 self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
                 return
+
+            if "[General Knowledge]" in answer:
+                answer_mode = "general_knowledge"
+            elif "[Source:" in answer:
+                answer_mode = "verified"
+            else:
+                answer_mode = "not_covered"
+            log_question(site_token, question or "(bill upload)", lang, answer_mode)
 
             self._respond(200, {"ok": True, "answer": answer})
 
