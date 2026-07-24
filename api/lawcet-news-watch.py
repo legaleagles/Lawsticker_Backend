@@ -52,11 +52,20 @@ def extract_latest_update_section(full_text):
     """
     Finds the "Latest Update" bullet section specifically, and cuts it off
     at the next major heading so unrelated page content never gets included
-    in the comparison. Falls back to a fixed-length slice around the marker
-    if the exact boundaries can't be found, rather than failing outright.
+    in the comparison.
+
+    Careers360 pages open with a "This Story also Contains" table of
+    contents that lists every section heading in order, including "TS
+    LAWCET 2026 Latest Update" immediately followed by "TS LAWCET 2026
+    Exam Date" as the next line. Using the FIRST occurrence of the marker
+    matches that ToC line, not the real section further down the page --
+    and since the cutoff marker is literally the ToC's next line, it
+    truncates to almost nothing. Using the LAST occurrence instead
+    reliably lands on the actual content section, since the ToC always
+    appears before the real sections in reading order.
     """
     for marker in SECTION_START_MARKERS:
-        idx = full_text.find(marker)
+        idx = full_text.rfind(marker)
         if idx != -1:
             # Grab a generous chunk after the marker, then trim at the next
             # heading-like transition (a capitalised multi-word run following
