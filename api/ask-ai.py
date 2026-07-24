@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 REPO = "legaleagles/LabourLaw2"
 KB_FILE = "knowledge-base.json"
 GITHUB_API = "https://api.github.com"
-GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 MAX_QUESTION_LEN = 500
@@ -158,7 +158,11 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
     if image_base64:
         parts.append({"inline_data": {"mime_type": image_mime_type or "image/jpeg", "data": image_base64}})
     payload = json.dumps({
-        "contents": [{"parts": parts}]
+        "contents": [{"parts": parts}],
+        # Output tokens cost roughly 6x input tokens — capping length keeps
+        # both cost and response time predictable, and reinforces the
+        # "concise, a few sentences" instruction already in the prompt.
+        "generationConfig": {"maxOutputTokens": 400},
     }).encode()
     req = urllib.request.Request(
         f"{GEMINI_URL}?key={api_key}",
