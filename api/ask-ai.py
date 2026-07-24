@@ -94,6 +94,7 @@ class handler(BaseHTTPRequestHandler):
             "gemini_key_length": len(gemini_key) if gemini_key is not None else None,
             "gemini_key_repr": repr(gemini_key)[:15] if gemini_key else repr(gemini_key),
             "matching_env_var_names": all_keys_with_gemini_or_api,
+            "test_var_value": os.environ.get("TEST_VAR"),
         })
 
     def do_POST(self):
