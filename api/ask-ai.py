@@ -47,17 +47,14 @@ def build_prompt(question, entries, lang):
         context_blocks.append(f"[Source: {e['source_page']}]\nTitle: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website.
+    prompt = f"""You are answering a question for a visitor to LawSticker AI, an Indian legal-rights education website. Answer ONLY using the approved content below, which comes from the site's own published, reviewed pages.
 
-PRIORITY ORDER:
-1. First, check the APPROVED CONTENT below. If it covers the question, answer using ONLY facts, figures, deadlines, and legal provisions stated there. Never invent or add anything beyond what's written. End with: [Source: page-name] (using the exact page name from the content you used).
-2. If the approved content does NOT cover the question, you may answer using your own general knowledge of Indian law instead — but you MUST clearly say this is general knowledge, not verified content from this site, and recommend the person confirm specifics with a professional or legal aid clinic before relying on it. End that kind of answer with exactly: [General Knowledge] instead of a Source tag.
-3. If you are not confident even in general knowledge terms, say so honestly rather than guessing, and suggest a professional or legal aid clinic.
-
-RULES THAT APPLY EITHER WAY:
+STRICT RULES:
+- Only use facts, figures, deadlines, and legal provisions that appear explicitly in the content below. Never invent or infer legal information not stated here.
+- If the approved content does not cover the question, say so honestly and suggest the person consult a qualified professional or a legal aid clinic. Do not guess.
 - Answer in {lang_names.get(lang, "English")}.
 - Keep the answer concise and practical — a few sentences, not an essay.
-- Never blend unverified general knowledge into an answer that's otherwise using approved content — pick one mode per answer and label it correctly.
+- Mention which page(s) the answer draws from at the end, in the format: [Source: page-name]
 
 APPROVED CONTENT:
 {context}
