@@ -86,14 +86,6 @@ def filter_relevant_entries(question, entries, max_entries=10):
     return relevant if relevant else entries[:max_entries]
 
 
-VERIFIED_HELPLINES = """- NALSA Free Legal Aid (any legal matter, connects to a panel lawyer): 15100
-- Women's Helpline (harassment, violence, safety): 181
-- National Commission for Women 24x7 Helpline: 14490
-- Childline (child-related issues): 1098
-- Senior Citizens / Elder Line: 14567
-- National Emergency (police/fire/medical): 112"""
-
-
 def build_prompt(question, entries, lang):
     lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
     context_blocks = []
@@ -107,31 +99,28 @@ def build_prompt(question, entries, lang):
 
 Answer using the APPROVED CONTENT below wherever it's relevant. For anything the approved content doesn't cover, you may still help using your own general knowledge of Indian law — the line that matters is NOT the topic, it's the type of claim within your answer:
 
-- SPECIFIC CLAIMS (exact numbers, deadlines, fees, compensation amounts, section numbers, filing procedures, forms) must ONLY ever come from the APPROVED CONTENT below, OR from the VERIFIED HELPLINES list below for contact numbers specifically. Never invent or infer a specific figure, deadline, or phone number that isn't stated in one of those two places.
+- SPECIFIC CLAIMS (exact numbers, deadlines, fees, compensation amounts, section numbers, filing procedures, forms) must ONLY ever come from the APPROVED CONTENT below. Never invent or infer a specific figure or deadline that isn't stated there.
 - GENERAL GUIDANCE (what kind of remedy exists, which body to approach, broad concepts, what a law is generally about) can come from your own knowledge of Indian law when the approved content doesn't cover the topic — this is genuinely useful even without site-verified specifics.
-
-VERIFIED HELPLINES (only use numbers from this exact list, never invent or recall a different one):
-{VERIFIED_HELPLINES}
-When your answer would genuinely benefit from a helpline (harassment, safety, needing free legal help, anything urgent), include the single most relevant one from this list at the end, clearly labeled as a helpline. Skip this entirely if none of these are genuinely relevant to the question — don't force one in.
 
 Decide per answer, honestly, which case you're in:
 - If your answer relies only on the APPROVED CONTENT (even if you also add general context around it), end with: [Source: page-name] (the exact page name from the content used).
 - If any part of your answer draws on your own general knowledge because the approved content didn't cover it, end with exactly: [General Knowledge] instead — and say plainly in the answer that this part isn't from the site's verified content.
 - If you're not confident either way, say so honestly and suggest a professional or legal aid clinic. Do not guess at specific figures under any circumstances.
 
-FORMATTING: Structure the answer for readability, not one dense paragraph. Use **bold** for key terms (like the name of a law or a helpline), and short bullet points (using "-") for lists of options, steps, or remedies where that fits better than prose. Keep it skimmable on a phone screen.
+FORMATTING: Structure the answer for readability, not one dense paragraph. Use **bold** for key terms (like the name of a law), and short bullet points (using "-") for lists of options, steps, or remedies where that fits better than prose. Keep it skimmable on a phone screen.
 
 IMPORTANT: Output ONLY the final answer itself. Do not show your classification, reasoning, or any meta-commentary about which case applies — the person should just see a clean, direct answer.
 
 RULES THAT APPLY EITHER WAY:
 - Answer in {lang_names.get(lang, "English")}.
 - Keep the answer concise and practical — a few sentences or a short list, not an essay.
-- Never state a specific number, deadline, amount, or phone number that isn't in the approved content or the verified helplines list, even inside an otherwise general-knowledge answer.
+- Never state a specific number, deadline, or amount that isn't in the approved content, even inside an otherwise general-knowledge answer.
 
 APPROVED CONTENT:
 {context}
 
 USER QUESTION: {question}"""
+    return prompt
     return prompt
 
 
@@ -174,7 +163,7 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
         # Output tokens cost roughly 6x input tokens — capping length keeps
         # both cost and response time predictable, and reinforces the
         # "concise, a few sentences" instruction already in the prompt.
-        "generationConfig": {"maxOutputTokens": 700},
+        "generationConfig": {"maxOutputTokens": 550},
     }).encode()
     req = urllib.request.Request(
         f"{GEMINI_URL}?key={api_key}",
