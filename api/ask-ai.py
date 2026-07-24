@@ -82,6 +82,17 @@ def call_gemini(api_key, prompt):
 
 
 class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        site_token = os.environ.get("SITE_REPO_TOKEN")
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        self._respond(200, {
+            "diagnostic": True,
+            "site_token_present": bool(site_token),
+            "gemini_key_present": bool(gemini_key),
+            "gemini_key_repr": repr(gemini_key)[:20] if gemini_key else None,
+            "gemini_key_last6": gemini_key[-6:] if gemini_key else None,
+        })
+
     def do_POST(self):
         site_token = os.environ.get("SITE_REPO_TOKEN")
         gemini_key = os.environ.get("GEMINI_API_KEY")
