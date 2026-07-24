@@ -54,6 +54,38 @@ def github_put(path, token, content_obj, sha, message, timeout=15):
         return resp.status
 
 
+STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to", "for",
+             "of", "and", "or", "my", "me", "i", "do", "does", "can", "what", "how", "if",
+             "it", "this", "that", "be", "have", "has", "will", "should", "would", "am"}
+
+
+def filter_relevant_entries(question, entries, max_entries=10):
+    """
+    Sending all 27 knowledge-base entries on every request makes the prompt
+    unnecessarily large, which slows Gemini's response time and makes it
+    more likely to bump against the function's time budget. This scores
+    entries by simple keyword overlap with the question and keeps only the
+    most relevant ones, falling back to everything if nothing scores well
+    (e.g. a very short or unusual question) so real coverage never
+    regresses because of this shortcut.
+    """
+    q_words = {w for w in question.lower().split() if w not in STOPWORDS and len(w) > 2}
+    if not q_words:
+        return entries[:max_entries]
+
+    scored = []
+    for e in entries:
+        text = " ".join([
+            e["title"].get("en", ""), e["tag"].get("en", ""), e["body"].get("en", ""),
+        ]).lower()
+        score = sum(1 for w in q_words if w in text)
+        scored.append((score, e))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    relevant = [e for score, e in scored if score > 0][:max_entries]
+    return relevant if relevant else entries[:max_entries]
+
+
 def build_prompt(question, entries, lang):
     lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
     context_blocks = []
@@ -134,7 +166,7 @@ def call_gemini(api_key, prompt, image_base64=None, image_mime_type=None):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=7.5) as resp:
+    with urllib.request.urlopen(req, timeout=8) as resp:
         result = json.loads(resp.read().decode())
     try:
         return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -171,7 +203,8 @@ class handler(BaseHTTPRequestHandler):
             if image_base64:
                 prompt = build_bill_prompt(entries, lang)
             else:
-                prompt = build_prompt(question, entries, lang)
+                relevant_entries = filter_relevant_entries(question, entries)
+                prompt = build_prompt(question, relevant_entries, lang)
 
             try:
                 answer = call_gemini(gemini_key, prompt, image_base64, image_mime_type)
