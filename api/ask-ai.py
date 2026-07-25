@@ -65,7 +65,7 @@ TOPIC_PAGE_MAP = {
     "personal": ["rights-personal"], "student": ["rights-student"],
     "lawcet": ["lawcet"],
     "calculators": ["limitation-calc", "court-fee-calc", "chit-fund-calc", "electricity-calc",
-                     "gold-loan-calc", "eligibility-calculator"],
+                     "gold-loan-calc", "gold-calculator", "eligibility-calculator"],
 }
 
 TOPIC_LABELS = {
