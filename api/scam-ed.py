@@ -71,7 +71,7 @@ def build_scamed_prompt(story, entries, lang):
 
     prompt = f"""You are processing a scam-experience submission for LawSticker AI's "Scam-Ed" feature — a community scam-awareness archive.
 
-Given the user's raw story below, do ALL four of the following and return them in EXACTLY this format, with these exact labels on their own lines (nothing else, no extra commentary):
+Given the user's raw story below, do ALL four of the following and return them in EXACTLY this format, with these exact labels on their own lines (nothing else, no extra commentary, no markdown formatting like ** around the labels themselves):
 
 CATEGORY: [one of: Phone Scam, Online Shopping, Investment, Job Offer, Loan/Financial, Digital/Cyber, Other]
 TITLE: [a short 5-8 word anonymized title describing the scam pattern, not the person]
@@ -114,8 +114,17 @@ def call_gemini(api_key, prompt):
 
 def parse_gemini_output(text):
     def extract(label, next_labels):
-        pattern = rf"{label}:\s*(.*?)(?=\n(?:{'|'.join(next_labels)}):|$)"
-        m = re.search(pattern, text, re.DOTALL)
+        # Handles Gemini optionally wrapping labels in markdown bold
+        # (**CATEGORY:**), different casing, and extra blank lines —
+        # a rigid exact-match regex silently broke on any of these,
+        # which is very plausibly why real submissions weren't saving.
+        label_pat = rf"\**\s*{label}\s*:\**\s*"
+        if next_labels:
+            next_pat = "|".join(rf"\**\s*{nl}\s*:\**" for nl in next_labels)
+            pattern = rf"{label_pat}(.*?)(?=\n\s*(?:{next_pat})|$)"
+        else:
+            pattern = rf"{label_pat}(.*)"
+        m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else ""
 
     labels = ["CATEGORY", "TITLE", "ANONYMIZED_STORY", "REMEDY_ADVICE"]
@@ -201,16 +210,16 @@ class handler(BaseHTTPRequestHandler):
             # this one submission logged; a slow save must never risk the
             # response itself hitting Vercel's hard 10s ceiling.
             elapsed = time.monotonic() - start_time
-            if elapsed < 5 and parsed["category"] and parsed["anonymized_story"]:
+            if elapsed < 5:
                 try:
                     pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=1.5, repo=BACKEND_REPO)
                 except Exception:
                     pending, sha = {"entries": []}, None
                 pending.setdefault("entries", []).append({
                     "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
-                    "category": parsed["category"],
-                    "title": parsed["title"],
-                    "anonymized_story": parsed["anonymized_story"],
+                    "category": parsed["category"] or "Uncategorized",
+                    "title": parsed["title"] or "(needs manual review)",
+                    "anonymized_story": parsed["anonymized_story"] or "[parsing incomplete — see raw output] " + raw_output[:500],
                     "lang": lang,
                     "submitted_at": datetime.now(timezone.utc).isoformat(),
                     "status": "pending",
