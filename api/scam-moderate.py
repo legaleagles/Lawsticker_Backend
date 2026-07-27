@@ -78,7 +78,7 @@ class handler(BaseHTTPRequestHandler):
 
             if action == "list":
                 try:
-                    pending, _ = github_get_raw(PENDING_FILE, site_token, BACKEND_REPO)
+                    pending, _ = github_get_raw(PENDING_FILE, site_token, MAIN_REPO)
                 except Exception:
                     pending = {"entries": []}
                 items = [e for e in pending.get("entries", []) if e.get("status") == "pending"]
@@ -90,7 +90,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No report id provided."})
                 return
 
-            pending, pending_sha = github_get_raw(PENDING_FILE, site_token, BACKEND_REPO)
+            pending, pending_sha = github_get_raw(PENDING_FILE, site_token, MAIN_REPO)
             target = None
             for e in pending.get("entries", []):
                 if e.get("id") == report_id:
@@ -117,7 +117,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "Unknown action."})
                 return
 
-            github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}", BACKEND_REPO)
+            github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}", MAIN_REPO)
             self._respond(200, {"ok": True})
 
         except Exception as e:
