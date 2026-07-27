@@ -212,7 +212,7 @@ class handler(BaseHTTPRequestHandler):
             elapsed = time.monotonic() - start_time
             if elapsed < 5:
                 try:
-                    pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=1.5, repo=BACKEND_REPO)
+                    pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=3, repo=BACKEND_REPO)
                 except Exception:
                     pending, sha = {"entries": []}, None
                 pending.setdefault("entries", []).append({
@@ -226,7 +226,7 @@ class handler(BaseHTTPRequestHandler):
                 })
                 pending["entries"] = pending["entries"][-500:]
                 try:
-                    github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=1.5, repo=BACKEND_REPO)
+                    github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=4, repo=BACKEND_REPO)
                 except Exception:
                     pass
 
