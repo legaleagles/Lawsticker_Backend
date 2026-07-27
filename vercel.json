@@ -39,6 +39,14 @@
     {
       "src": "api/ask-ai.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/scam-ed.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/scam-moderate.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
@@ -81,6 +89,14 @@
     {
       "src": "/api/ask-ai",
       "dest": "api/ask-ai.py"
+    },
+    {
+      "src": "/api/scam-ed",
+      "dest": "api/scam-ed.py"
+    },
+    {
+      "src": "/api/scam-moderate",
+      "dest": "api/scam-moderate.py"
     }
   ],
   "crons": [
