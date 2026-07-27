@@ -210,11 +210,13 @@ class handler(BaseHTTPRequestHandler):
             # this one submission logged; a slow save must never risk the
             # response itself hitting Vercel's hard 10s ceiling.
             elapsed = time.monotonic() - start_time
+            save_debug = None
             if elapsed < 5:
                 try:
                     pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=3, repo=BACKEND_REPO)
-                except Exception:
+                except Exception as ge:
                     pending, sha = {"entries": []}, None
+                    save_debug = f"get_failed: {repr(ge)}"
                 pending.setdefault("entries", []).append({
                     "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
                     "category": parsed["category"] or "Uncategorized",
@@ -227,10 +229,14 @@ class handler(BaseHTTPRequestHandler):
                 pending["entries"] = pending["entries"][-500:]
                 try:
                     github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=4, repo=BACKEND_REPO)
-                except Exception:
-                    pass
+                    if save_debug is None:
+                        save_debug = "save_ok"
+                except Exception as pe:
+                    save_debug = f"put_failed: {repr(pe)}"
+            else:
+                save_debug = f"skipped_elapsed_{elapsed:.1f}s"
 
-            self._respond(200, {"ok": True, "answer": parsed["remedy_advice"]})
+            self._respond(200, {"ok": True, "answer": parsed["remedy_advice"], "_debug_save": save_debug})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
