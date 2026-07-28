@@ -19,7 +19,7 @@ STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to
              "it", "this", "that", "be", "have", "has", "will", "should", "would", "am"}
 
 CATEGORIES = ["Phone Scam", "Online Shopping", "Investment", "Job Offer",
-              "Loan/Financial", "Digital/Cyber", "Other"]
+              "Loan/Financial", "Digital/Cyber", "Pyramid Scheme/MLM", "Other"]
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -31,6 +31,22 @@ RESPONSE_SCHEMA = {
     },
     "required": ["category", "title", "anonymized_story", "remedy_advice"],
 }
+
+
+def send_telegram(bot_token, chat_id, text):
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return resp.status
+
+
+def send_telegram_to_all(bot_token, chat_id_config, text):
+    for cid in [c.strip() for c in chat_id_config.split(",") if c.strip()]:
+        try:
+            send_telegram(bot_token, cid, text)
+        except Exception:
+            pass  # a notification failure must never affect the actual submission
 
 
 def github_get_raw(path, token, timeout=15):
@@ -120,6 +136,7 @@ For remedy_advice specifically:
 - Prefer the APPROVED CONTENT below wherever relevant. Specific claims (exact numbers, deadlines, fees, section numbers) must ONLY come from the APPROVED CONTENT.
 - If the approved content doesn't cover it, general guidance from your own knowledge of Indian law is fine, but say plainly this part isn't from the site's verified content.
 - Keep it concise and practical.
+- Use simple, everyday language a common person can easily understand — avoid formal or overly technical wording.
 - If a genuinely relevant national helpline exists (fraud/cybercrime: 1930, NALSA legal aid: 15100), mention it.
 - If the submission doesn't actually describe a scam (sounds like a personal dispute, refund disagreement, etc.), say so honestly rather than forcing a categorization.
 - Some victims lose things other than money — time, trust, emotional wellbeing, safety. If the "cost" mentions any of these, acknowledge it genuinely rather than only addressing financial loss.
@@ -230,12 +247,15 @@ class handler(BaseHTTPRequestHandler):
             # version together — the moderator needs to see both to judge
             # whether the anonymization was actually adequate. Only the
             # anonymized fields ever get promoted to the public file later.
+            internal_id = f"scam-{int(datetime.now(timezone.utc).timestamp())}"
+            ref_number = "SE-" + internal_id.split("-")[1][-6:]  # short, presentable reference for the submitter
             try:
                 pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=2.5)
             except Exception:
                 pending, sha = {"entries": []}, None
             pending.setdefault("entries", []).append({
-                "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
+                "id": internal_id,
+                "ref_number": ref_number,
                 "original_story": story,
                 "structured_fields": fields,  # kept for future scam-verify pattern matching
                 "category": parsed["category"],
@@ -248,7 +268,31 @@ class handler(BaseHTTPRequestHandler):
             pending["entries"] = pending["entries"][-500:]
             github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=2.5)
 
-            self._respond(200, {"ok": True, "answer": parsed["remedy_advice"]})
+            # Best-effort notification — only the anonymized title/category
+            # ever goes to Telegram, never the raw story, keeping the same
+            # privacy discipline in the alert channel as everywhere else.
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+            chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+            if bot_token and chat_id:
+                try:
+                    alert_text = (
+                        f"🛡️ <b>New Scam-Ed Report</b> ({ref_number})\n"
+                        f"Category: {parsed['category']}\n"
+                        f"Title: {parsed['title']}\n"
+                        f"Review at: lawsticker-ai.com/scam-ed-moderate.html"
+                    )
+                    send_telegram_to_all(bot_token, chat_id, alert_text)
+                except Exception:
+                    pass
+
+            under_review_note = {
+                "en": f"\n\n📋 Your report is saved under reference {ref_number}. It's under review and will appear on the Scam Stories page once approved — no need to resubmit.",
+                "te": f"\n\n📋 మీ నివేదిక {ref_number} రిఫరెన్స్‌తో సేవ్ చేయబడింది. ఇది సమీక్షలో ఉంది, ఆమోదించిన తర్వాత Scam Stories పేజీలో కనిపిస్తుంది — మళ్లీ సమర్పించాల్సిన అవసరం లేదు.",
+                "hi": f"\n\n📋 आपकी रिपोर्ट संदर्भ {ref_number} के तहत सहेजी गई है। यह समीक्षा में है और स्वीकृत होने पर Scam Stories पेज पर दिखाई देगी — दोबारा सबमिट करने की आवश्यकता नहीं है।",
+            }
+            answer_with_ref = parsed["remedy_advice"] + under_review_note.get(lang, under_review_note["en"])
+
+            self._respond(200, {"ok": True, "answer": answer_with_ref, "ref_number": ref_number})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
