@@ -198,6 +198,7 @@ class handler(BaseHTTPRequestHandler):
                 public_data.setdefault("entries", []).append(public_entry)
                 github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Approve scam report")
                 target["status"] = "approved"
+                target["_debug_enrich"] = enrich_debug
 
             elif action == "reject":
                 target["status"] = "rejected"
