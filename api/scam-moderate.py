@@ -2,12 +2,68 @@ import json
 import os
 import base64
 import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler
 
 REPO = "legaleagles/LabourLaw2"  # single repo for everything — matches scam-ed.py
 PENDING_FILE = "scam-reports-pending.json"
 PUBLIC_FILE = "scam-reports.json"
 GITHUB_API = "https://api.github.com"
+GEMINI_MODEL = "gemini-flash-lite-latest"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+ENRICH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scam_type_label": {"type": "string", "description": "Short, well-known name for this scam pattern type, e.g. 'Pyramid Scheme / MLM Fraud'"},
+        "modus_operandi": {"type": "string", "description": "2-3 sentences on how this type of scam generically operates, based on well-known patterns"},
+        "red_flags": {"type": "array", "items": {"type": "string"}, "description": "3-5 short, practical warning signs to watch for"},
+        "relevant_laws": {"type": "array", "items": {"type": "string"}, "description": "Names of well-established Indian Acts/laws relevant to this scam type — ONLY Act names, never case citations"},
+        "prevalence_note": {"type": "string", "description": "One honest, qualitative sentence on how common/known this pattern is — no invented statistics"},
+        "supportive_note": {"type": "string", "description": "A brief, warm, reassuring message for both the person who experienced this and future readers"},
+    },
+    "required": ["scam_type_label", "modus_operandi", "red_flags", "relevant_laws", "prevalence_note", "supportive_note"],
+}
+
+
+def call_gemini_enrichment(api_key, category, anonymized_story, lang):
+    lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
+    prompt = f"""You are enriching an approved, anonymized scam report for LawSticker AI's public "Scam Stories & Remedies" education page — a real person will read this to learn and feel supported.
+
+Category: {category}
+Story: {anonymized_story}
+
+Produce, in {lang_names.get(lang, "English")}:
+- scam_type_label: the well-known name for this pattern (e.g. "Pyramid Scheme / MLM Fraud", "Phishing / OTP Scam")
+- modus_operandi: how scams of this general type typically work — genuinely informative, not vague
+- red_flags: 3-5 concrete, practical warning signs
+- relevant_laws: ONLY the names of well-established Indian Acts/laws relevant to this scam type (e.g. "Consumer Protection Act 2019", "Prize Chits and Money Circulation Schemes (Banning) Act 1978", "Information Technology Act 2000"). Do NOT cite specific court cases, judgments, or rulings — those cannot be verified here and must never be invented.
+- prevalence_note: one honest, qualitative sentence on how commonly this pattern is reported — do not invent statistics or percentages
+- supportive_note: warm, genuine reassurance — for the person who went through this, and for anyone reading this to learn
+
+Stay factual and general. If you're not confident about a specific law applying, leave it out rather than guess."""
+
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 700,
+            "responseMimeType": "application/json",
+            "responseSchema": ENRICH_SCHEMA,
+        },
+    }).encode()
+    req = urllib.request.Request(
+        f"{GEMINI_URL}?key={api_key}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        result = json.loads(resp.read().decode())
+    try:
+        raw_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(raw_text)
+    except (KeyError, IndexError, json.JSONDecodeError):
+        return None
 
 
 def github_get_raw(path, token, timeout=10):
@@ -99,6 +155,14 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             if action == "approve":
+                gemini_key = os.environ.get("GEMINI_API_KEY")
+                enrichment = None
+                if gemini_key:
+                    try:
+                        enrichment = call_gemini_enrichment(gemini_key, target["category"], target["anonymized_story"], target.get("lang", "en"))
+                    except Exception:
+                        enrichment = None  # approval must still succeed even if enrichment fails
+
                 try:
                     public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
                 except Exception:
@@ -110,7 +174,7 @@ class handler(BaseHTTPRequestHandler):
                 # pending-only, since they could still carry something
                 # identifying even after the AI's anonymization pass.
                 src_fields = target.get("structured_fields", {})
-                public_data.setdefault("entries", []).append({
+                public_entry = {
                     "id": target["id"],
                     "category": target["category"],
                     "title": target["title"],
@@ -123,7 +187,10 @@ class handler(BaseHTTPRequestHandler):
                     },
                     "lang": target.get("lang", "en"),
                     "status": "approved",
-                })
+                }
+                if enrichment:
+                    public_entry["enrichment"] = enrichment
+                public_data.setdefault("entries", []).append(public_entry)
                 github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Approve scam report")
                 target["status"] = "approved"
 
