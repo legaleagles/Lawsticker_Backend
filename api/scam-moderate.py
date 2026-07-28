@@ -103,13 +103,24 @@ class handler(BaseHTTPRequestHandler):
                     public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
                 except Exception:
                     public_data, public_sha = {"entries": []}, None
-                # Only the anonymized fields ever go public — the original
-                # raw story stays in the pending file, never promoted.
+                # Only the anonymized fields ever go public. Of the structured
+                # fields, only the categorical (dropdown-derived) ones are
+                # promoted — those are safe by construction. The free-text
+                # fields (offer_claim, suspicion_trigger, extra_details) stay
+                # pending-only, since they could still carry something
+                # identifying even after the AI's anonymization pass.
+                src_fields = target.get("structured_fields", {})
                 public_data.setdefault("entries", []).append({
                     "id": target["id"],
                     "category": target["category"],
                     "title": target["title"],
                     "anonymized_story": target["anonymized_story"],
+                    "signals": {
+                        "contact_method": src_fields.get("contact_method", ""),
+                        "ask_action": src_fields.get("ask_action", ""),
+                        "cost_items": src_fields.get("cost_items", []),
+                        "money_range": src_fields.get("money_range", ""),
+                    },
                     "lang": target.get("lang", "en"),
                     "status": "approved",
                 })
