@@ -4,16 +4,15 @@ import base64
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
-BACKEND_REPO = "legaleagles/Lawsticker_Backend"
-MAIN_REPO = "legaleagles/LabourLaw2"
+REPO = "legaleagles/LabourLaw2"  # single repo for everything — matches scam-ed.py
 PENDING_FILE = "scam-reports-pending.json"
 PUBLIC_FILE = "scam-reports.json"
 GITHUB_API = "https://api.github.com"
 
 
-def github_get_raw(path, token, repo, timeout=10):
+def github_get_raw(path, token, timeout=10):
     req = urllib.request.Request(
-        f"{GITHUB_API}/repos/{repo}/contents/{path}",
+        f"{GITHUB_API}/repos/{REPO}/contents/{path}",
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -21,13 +20,13 @@ def github_get_raw(path, token, repo, timeout=10):
         return json.loads(base64.b64decode(data["content"]).decode()), data["sha"]
 
 
-def github_put(path, token, content_obj, sha, message, repo, timeout=10):
+def github_put(path, token, content_obj, sha, message, timeout=10):
     body = json.dumps(content_obj, indent=2, ensure_ascii=False).encode()
     payload = {"message": message, "content": base64.b64encode(body).decode(), "branch": "main"}
     if sha:
         payload["sha"] = sha
     req = urllib.request.Request(
-        f"{GITHUB_API}/repos/{repo}/contents/{path}",
+        f"{GITHUB_API}/repos/{REPO}/contents/{path}",
         data=json.dumps(payload).encode(),
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
         method="PUT",
@@ -52,9 +51,8 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _check_password(self, provided):
-        # Fails closed: if no moderator password has been configured yet on
-        # Vercel, EVERY request is rejected — there is no "default open"
-        # state. Set SCAM_MODERATOR_PASSWORD as an env var to activate this.
+        # Fails closed: no configured password means every request is
+        # rejected, never a default-open state.
         real_password = os.environ.get("SCAM_MODERATOR_PASSWORD")
         if not real_password:
             return False
@@ -78,7 +76,7 @@ class handler(BaseHTTPRequestHandler):
 
             if action == "list":
                 try:
-                    pending, _ = github_get_raw(PENDING_FILE, site_token, MAIN_REPO)
+                    pending, _ = github_get_raw(PENDING_FILE, site_token)
                 except Exception:
                     pending = {"entries": []}
                 items = [e for e in pending.get("entries", []) if e.get("status") == "pending"]
@@ -90,7 +88,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No report id provided."})
                 return
 
-            pending, pending_sha = github_get_raw(PENDING_FILE, site_token, MAIN_REPO)
+            pending, pending_sha = github_get_raw(PENDING_FILE, site_token)
             target = None
             for e in pending.get("entries", []):
                 if e.get("id") == report_id:
@@ -102,12 +100,20 @@ class handler(BaseHTTPRequestHandler):
 
             if action == "approve":
                 try:
-                    public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token, MAIN_REPO)
+                    public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
                 except Exception:
                     public_data, public_sha = {"entries": []}, None
-                target["status"] = "approved"
-                public_data.setdefault("entries", []).append(target)
-                github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Approve scam report", MAIN_REPO)
+                # Only the anonymized fields ever go public — the original
+                # raw story stays in the pending file, never promoted.
+                public_data.setdefault("entries", []).append({
+                    "id": target["id"],
+                    "category": target["category"],
+                    "title": target["title"],
+                    "anonymized_story": target["anonymized_story"],
+                    "lang": target.get("lang", "en"),
+                    "status": "approved",
+                })
+                github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Approve scam report")
                 target["status"] = "approved"
 
             elif action == "reject":
@@ -117,7 +123,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "Unknown action."})
                 return
 
-            github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}", MAIN_REPO)
+            github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}")
             self._respond(200, {"ok": True})
 
         except Exception as e:
