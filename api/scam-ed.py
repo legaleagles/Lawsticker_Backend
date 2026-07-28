@@ -72,6 +72,33 @@ def filter_relevant_entries(text, entries, max_entries=8):
     return relevant if relevant else entries[:max_entries]
 
 
+def compose_narrative(fields):
+    """
+    Turns the structured form answers into a coherent narrative for Gemini
+    to work from — richer and more specific than a single free-text box,
+    since every field forces a concrete, comparable detail rather than
+    leaving it to chance whether someone happens to mention it.
+    """
+    parts = []
+    if fields.get("contact_method"):
+        parts.append(f"Contacted via: {fields['contact_method']}.")
+    if fields.get("offer_claim"):
+        parts.append(f"They were offering/claiming: {fields['offer_claim']}.")
+    if fields.get("ask_action"):
+        parts.append(f"They asked the user to: {fields['ask_action']}.")
+    if fields.get("suspicion_trigger"):
+        parts.append(f"What first raised suspicion: {fields['suspicion_trigger']}.")
+    cost_items = fields.get("cost_items") or []
+    if cost_items:
+        cost_line = f"What it cost the user: {', '.join(cost_items)}."
+        if "Money" in cost_items and fields.get("money_range"):
+            cost_line += f" Approximate range: {fields['money_range']}."
+        parts.append(cost_line)
+    if fields.get("extra_details"):
+        parts.append(f"Additional details: {fields['extra_details']}.")
+    return " ".join(parts)
+
+
 def build_scamed_prompt(story, entries, lang):
     lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
     context_blocks = []
@@ -81,12 +108,12 @@ def build_scamed_prompt(story, entries, lang):
         context_blocks.append(f"[Source: {e['source_page']}]\nTitle: {title}\nContent: {body}")
     context = "\n\n".join(context_blocks)
 
-    prompt = f"""You are processing a scam-experience submission for LawSticker AI's "Scam-Ed" feature — a community scam-awareness archive.
+    prompt = f"""You are processing a scam-experience submission for LawSticker AI's "Scam-Ed" feature — a community scam-awareness archive. The submission below comes from a structured form (not free text), so treat each piece as a factual answer to a specific question.
 
-Analyze the user's raw story below and produce:
+Analyze the user's submission below and produce:
 - category: pick the single best-fitting category
 - title: a short anonymized title describing the SCAM PATTERN, not the person or business
-- anonymized_story: the story rewritten with ALL names, business names, phone numbers, email addresses, and specific locations removed — describe only the technique used, in 2-4 sentences
+- anonymized_story: a clear, specific 2-4 sentence narrative synthesizing the submission below — describe the actual technique used (how contact happened, what was offered, what was asked for, what gave it away) with ALL names, business names, phone numbers, email addresses, and specific locations removed. This should read as a genuinely informative account of the scam pattern, not a vague summary.
 - remedy_advice: practical advice for the user, answered in {lang_names.get(lang, "English")}
 
 For remedy_advice specifically:
@@ -94,12 +121,13 @@ For remedy_advice specifically:
 - If the approved content doesn't cover it, general guidance from your own knowledge of Indian law is fine, but say plainly this part isn't from the site's verified content.
 - Keep it concise and practical.
 - If a genuinely relevant national helpline exists (fraud/cybercrime: 1930, NALSA legal aid: 15100), mention it.
-- If the story doesn't actually describe a scam (sounds like a personal dispute, refund disagreement, etc.), say so honestly rather than forcing a categorization.
+- If the submission doesn't actually describe a scam (sounds like a personal dispute, refund disagreement, etc.), say so honestly rather than forcing a categorization.
+- Some victims lose things other than money — time, trust, emotional wellbeing, safety. If the "cost" mentions any of these, acknowledge it genuinely rather than only addressing financial loss.
 
 APPROVED CONTENT:
 {context}
 
-USER'S STORY:
+USER'S SUBMISSION:
 {story}"""
     return prompt
 
@@ -154,13 +182,23 @@ class handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode())
-            story = (body.get("story") or "").strip()[:MAX_STORY_LEN]
             lang = body.get("lang", "en")
             if lang not in ("en", "te", "hi"):
                 lang = "en"
 
+            fields = {
+                "contact_method": (body.get("contact_method") or "").strip()[:100],
+                "offer_claim": (body.get("offer_claim") or "").strip()[:200],
+                "ask_action": (body.get("ask_action") or "").strip()[:100],
+                "suspicion_trigger": (body.get("suspicion_trigger") or "").strip()[:300],
+                "cost_items": [str(c).strip()[:60] for c in (body.get("cost_items") or [])][:10],
+                "money_range": (body.get("money_range") or "").strip()[:50],
+                "extra_details": (body.get("extra_details") or "").strip()[:800],
+            }
+            story = compose_narrative(fields)[:MAX_STORY_LEN]
+
             if not story:
-                self._respond(400, {"ok": False, "error": "No story provided."})
+                self._respond(400, {"ok": False, "error": "No details provided."})
                 return
 
             # Real measured budget (not guessed): KB fetch + Gemini call
@@ -199,6 +237,7 @@ class handler(BaseHTTPRequestHandler):
             pending.setdefault("entries", []).append({
                 "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
                 "original_story": story,
+                "structured_fields": fields,  # kept for future scam-verify pattern matching
                 "category": parsed["category"],
                 "title": parsed["title"],
                 "anonymized_story": parsed["anonymized_story"],
