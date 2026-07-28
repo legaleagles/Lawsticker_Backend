@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler
 REPO = "legaleagles/LabourLaw2"  # single repo for everything — matches scam-ed.py
 PENDING_FILE = "scam-reports-pending.json"
 PUBLIC_FILE = "scam-reports.json"
+ARCHIVE_FILE = "scam-reports-archived.json"  # taken-down stories go here, never permanently destroyed
 GITHUB_API = "https://api.github.com"
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -141,10 +142,77 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(200, {"ok": True, "items": items})
                 return
 
+            if action == "list_published":
+                try:
+                    public_data, _ = github_get_raw(PUBLIC_FILE, site_token)
+                except Exception:
+                    public_data = {"entries": []}
+                self._respond(200, {"ok": True, "items": public_data.get("entries", [])})
+                return
+
+            if action == "list_archived":
+                try:
+                    archive, _ = github_get_raw(ARCHIVE_FILE, site_token)
+                except Exception:
+                    archive = {"entries": []}
+                self._respond(200, {"ok": True, "items": archive.get("entries", [])})
+                return
+
             report_id = body.get("id")
             if not report_id:
                 self._respond(400, {"ok": False, "error": "No report id provided."})
                 return
+
+            if action == "takedown":
+                public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
+                entry = None
+                remaining = []
+                for e in public_data.get("entries", []):
+                    if e.get("id") == report_id:
+                        entry = e
+                    else:
+                        remaining.append(e)
+                if not entry:
+                    self._respond(404, {"ok": False, "error": "Published story not found."})
+                    return
+                entry["taken_down_at"] = datetime.now(timezone.utc).isoformat()
+                public_data["entries"] = remaining
+                github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Take down scam story")
+
+                try:
+                    archive, archive_sha = github_get_raw(ARCHIVE_FILE, site_token)
+                except Exception:
+                    archive, archive_sha = {"entries": []}, None
+                archive.setdefault("entries", []).append(entry)
+                github_put(ARCHIVE_FILE, site_token, archive, archive_sha, "Archive taken-down scam story")
+                self._respond(200, {"ok": True})
+                return
+
+            if action == "restore":
+                archive, archive_sha = github_get_raw(ARCHIVE_FILE, site_token)
+                entry = None
+                remaining = []
+                for e in archive.get("entries", []):
+                    if e.get("id") == report_id:
+                        entry = e
+                    else:
+                        remaining.append(e)
+                if not entry:
+                    self._respond(404, {"ok": False, "error": "Archived story not found."})
+                    return
+                entry.pop("taken_down_at", None)
+                archive["entries"] = remaining
+                github_put(ARCHIVE_FILE, site_token, archive, archive_sha, "Restore scam story from archive")
+
+                try:
+                    public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
+                except Exception:
+                    public_data, public_sha = {"entries": []}, None
+                public_data.setdefault("entries", []).append(entry)
+                github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Restore scam story to public")
+                self._respond(200, {"ok": True})
+                return
+
 
             pending, pending_sha = github_get_raw(PENDING_FILE, site_token)
             target = None
