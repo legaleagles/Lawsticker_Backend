@@ -140,6 +140,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             report_id = body.get("id")
+            enrich_debug = None
             if not report_id:
                 self._respond(400, {"ok": False, "error": "No report id provided."})
                 return
@@ -157,11 +158,15 @@ class handler(BaseHTTPRequestHandler):
             if action == "approve":
                 gemini_key = os.environ.get("GEMINI_API_KEY")
                 enrichment = None
-                if gemini_key:
+                if not gemini_key:
+                    enrich_debug = "no_gemini_key"
+                else:
                     try:
                         enrichment = call_gemini_enrichment(gemini_key, target["category"], target["anonymized_story"], target.get("lang", "en"))
-                    except Exception:
-                        enrichment = None  # approval must still succeed even if enrichment fails
+                        enrich_debug = "ok" if enrichment else "returned_none"
+                    except Exception as ee:
+                        enrichment = None
+                        enrich_debug = repr(ee)
 
                 try:
                     public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
@@ -202,7 +207,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}")
-            self._respond(200, {"ok": True})
+            self._respond(200, {"ok": True, "_debug_enrich": enrich_debug})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
