@@ -3,12 +3,10 @@ import os
 import base64
 import urllib.request
 import urllib.error
-import re
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
-REPO = "legaleagles/LabourLaw2"
-BACKEND_REPO = "legaleagles/Lawsticker_Backend"
+REPO = "legaleagles/LabourLaw2"  # single repo for everything — the one SITE_REPO_TOKEN is proven to work with
 KB_FILE = "knowledge-base.json"
 PENDING_FILE = "scam-reports-pending.json"
 GITHUB_API = "https://api.github.com"
@@ -20,10 +18,24 @@ STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to
              "of", "and", "or", "my", "me", "i", "do", "does", "can", "what", "how", "if",
              "it", "this", "that", "be", "have", "has", "will", "should", "would", "am"}
 
+CATEGORIES = ["Phone Scam", "Online Shopping", "Investment", "Job Offer",
+              "Loan/Financial", "Digital/Cyber", "Other"]
 
-def github_get_raw(path, token, timeout=15, repo=REPO):
+RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string", "enum": CATEGORIES},
+        "title": {"type": "string", "description": "5-8 word anonymized title describing the pattern, not the person"},
+        "anonymized_story": {"type": "string", "description": "Story rewritten with all names, businesses, phone numbers, and locations removed"},
+        "remedy_advice": {"type": "string", "description": "Practical legal remedy advice for the user"},
+    },
+    "required": ["category", "title", "anonymized_story", "remedy_advice"],
+}
+
+
+def github_get_raw(path, token, timeout=15):
     req = urllib.request.Request(
-        f"{GITHUB_API}/repos/{repo}/contents/{path}",
+        f"{GITHUB_API}/repos/{REPO}/contents/{path}",
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -31,13 +43,13 @@ def github_get_raw(path, token, timeout=15, repo=REPO):
         return json.loads(base64.b64decode(data["content"]).decode()), data["sha"]
 
 
-def github_put(path, token, content_obj, sha, message, timeout=15, repo=REPO):
+def github_put(path, token, content_obj, sha, message, timeout=15):
     body = json.dumps(content_obj, indent=2, ensure_ascii=False).encode()
     payload = {"message": message, "content": base64.b64encode(body).decode(), "branch": "main"}
     if sha:
         payload["sha"] = sha
     req = urllib.request.Request(
-        f"{GITHUB_API}/repos/{repo}/contents/{path}",
+        f"{GITHUB_API}/repos/{REPO}/contents/{path}",
         data=json.dumps(payload).encode(),
         headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
         method="PUT",
@@ -71,19 +83,18 @@ def build_scamed_prompt(story, entries, lang):
 
     prompt = f"""You are processing a scam-experience submission for LawSticker AI's "Scam-Ed" feature — a community scam-awareness archive.
 
-Given the user's raw story below, do ALL four of the following and return them in EXACTLY this format, with these exact labels on their own lines (nothing else, no extra commentary, no markdown formatting like ** around the labels themselves):
+Analyze the user's raw story below and produce:
+- category: pick the single best-fitting category
+- title: a short anonymized title describing the SCAM PATTERN, not the person or business
+- anonymized_story: the story rewritten with ALL names, business names, phone numbers, email addresses, and specific locations removed — describe only the technique used, in 2-4 sentences
+- remedy_advice: practical advice for the user, answered in {lang_names.get(lang, "English")}
 
-CATEGORY: [one of: Phone Scam, Online Shopping, Investment, Job Offer, Loan/Financial, Digital/Cyber, Other]
-TITLE: [a short 5-8 word anonymized title describing the scam pattern, not the person]
-ANONYMIZED_STORY: [rewrite the story removing ALL names, business names, phone numbers, email addresses, specific locations, or any other identifying detail — describe only the technique/pattern used, in 2-4 sentences]
-REMEDY_ADVICE: [helpful, practical advice for what the user can do — answer in {lang_names.get(lang, "English")}]
-
-For REMEDY_ADVICE specifically, follow these rules:
-- Prefer the APPROVED CONTENT below wherever it's relevant. Specific claims (exact numbers, deadlines, fees, section numbers) must ONLY come from the APPROVED CONTENT.
+For remedy_advice specifically:
+- Prefer the APPROVED CONTENT below wherever relevant. Specific claims (exact numbers, deadlines, fees, section numbers) must ONLY come from the APPROVED CONTENT.
 - If the approved content doesn't cover it, general guidance from your own knowledge of Indian law is fine, but say plainly this part isn't from the site's verified content.
-- Keep it concise and practical — a few sentences.
+- Keep it concise and practical.
 - If a genuinely relevant national helpline exists (fraud/cybercrime: 1930, NALSA legal aid: 15100), mention it.
-- If the story doesn't actually describe a scam (sounds like a personal dispute, refund disagreement, etc.), say so honestly in REMEDY_ADVICE and gently suggest that may not be a scam, rather than force a categorization.
+- If the story doesn't actually describe a scam (sounds like a personal dispute, refund disagreement, etc.), say so honestly rather than forcing a categorization.
 
 APPROVED CONTENT:
 {context}
@@ -93,10 +104,14 @@ USER'S STORY:
     return prompt
 
 
-def call_gemini(api_key, prompt):
+def call_gemini_structured(api_key, prompt):
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 700},
+        "generationConfig": {
+            "maxOutputTokens": 700,
+            "responseMimeType": "application/json",
+            "responseSchema": RESPONSE_SCHEMA,
+        },
     }).encode()
     req = urllib.request.Request(
         f"{GEMINI_URL}?key={api_key}",
@@ -107,33 +122,10 @@ def call_gemini(api_key, prompt):
     with urllib.request.urlopen(req, timeout=6) as resp:
         result = json.loads(resp.read().decode())
     try:
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
+        raw_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(raw_text)  # guaranteed valid JSON matching RESPONSE_SCHEMA — no regex needed
+    except (KeyError, IndexError, json.JSONDecodeError):
         return None
-
-
-def parse_gemini_output(text):
-    def extract(label, next_labels):
-        # Handles Gemini optionally wrapping labels in markdown bold
-        # (**CATEGORY:**), different casing, and extra blank lines —
-        # a rigid exact-match regex silently broke on any of these,
-        # which is very plausibly why real submissions weren't saving.
-        label_pat = rf"\**\s*{label}\s*:\**\s*"
-        if next_labels:
-            next_pat = "|".join(rf"\**\s*{nl}\s*:\**" for nl in next_labels)
-            pattern = rf"{label_pat}(.*?)(?=\n\s*(?:{next_pat})|$)"
-        else:
-            pattern = rf"{label_pat}(.*)"
-        m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-        return m.group(1).strip() if m else ""
-
-    labels = ["CATEGORY", "TITLE", "ANONYMIZED_STORY", "REMEDY_ADVICE"]
-    return {
-        "category": extract("CATEGORY", labels[1:]),
-        "title": extract("TITLE", labels[2:]),
-        "anonymized_story": extract("ANONYMIZED_STORY", labels[3:]),
-        "remedy_advice": extract("REMEDY_ADVICE", []),
-    }
 
 
 class handler(BaseHTTPRequestHandler):
@@ -152,9 +144,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        import time
-        start_time = time.monotonic()
-
         site_token = os.environ.get("SITE_REPO_TOKEN")
         gemini_key = os.environ.get("GEMINI_API_KEY")
 
@@ -174,13 +163,16 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No story provided."})
                 return
 
+            # Real measured budget (not guessed): KB fetch + Gemini call
+            # together take ~2s in practice. Vercel's hard ceiling is 10s.
+            # Timeouts below leave genuine margin even in a slow case.
             kb, _ = github_get_raw(KB_FILE, site_token, timeout=2)
             entries = kb.get("entries", [])
             relevant_entries = filter_relevant_entries(story, entries)
             prompt = build_scamed_prompt(story, relevant_entries, lang)
 
             try:
-                raw_output = call_gemini(gemini_key, prompt)
+                parsed = call_gemini_structured(gemini_key, prompt)
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode()
                 if e.code == 429:
@@ -192,51 +184,32 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(200, {"ok": False, "error": "AI service took too long to respond."})
                 return
 
-            if raw_output is None:
+            if not parsed or not parsed.get("remedy_advice"):
                 self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
                 return
 
-            parsed = parse_gemini_output(raw_output)
+            # Save both the original raw story AND the AI's anonymized
+            # version together — the moderator needs to see both to judge
+            # whether the anonymization was actually adequate. Only the
+            # anonymized fields ever get promoted to the public file later.
+            try:
+                pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=2.5)
+            except Exception:
+                pending, sha = {"entries": []}, None
+            pending.setdefault("entries", []).append({
+                "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
+                "original_story": story,
+                "category": parsed["category"],
+                "title": parsed["title"],
+                "anonymized_story": parsed["anonymized_story"],
+                "lang": lang,
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "status": "pending",
+            })
+            pending["entries"] = pending["entries"][-500:]
+            github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=2.5)
 
-            if not parsed["remedy_advice"]:
-                self._respond(200, {"ok": False, "error": "Could not process this submission."})
-                return
-
-            # Save to the pending queue for moderator review — done before
-            # responding (not after) since it's uncertain whether code after
-            # wfile.write() reliably continues running on this platform.
-            # Skipped entirely if the Gemini call already used most of the
-            # time budget — the user's actual reply always outranks getting
-            # this one submission logged; a slow save must never risk the
-            # response itself hitting Vercel's hard 10s ceiling.
-            elapsed = time.monotonic() - start_time
-            save_debug = None
-            if elapsed < 5:
-                try:
-                    pending, sha = github_get_raw(PENDING_FILE, site_token, timeout=3, repo=REPO)
-                except Exception as ge:
-                    pending, sha = {"entries": []}, None
-                    save_debug = f"get_failed: {repr(ge)}"
-                pending.setdefault("entries", []).append({
-                    "id": f"scam-{int(datetime.now(timezone.utc).timestamp())}",
-                    "category": parsed["category"] or "Uncategorized",
-                    "title": parsed["title"] or "(needs manual review)",
-                    "anonymized_story": parsed["anonymized_story"] or "[parsing incomplete — see raw output] " + raw_output[:500],
-                    "lang": lang,
-                    "submitted_at": datetime.now(timezone.utc).isoformat(),
-                    "status": "pending",
-                })
-                pending["entries"] = pending["entries"][-500:]
-                try:
-                    github_put(PENDING_FILE, site_token, pending, sha, "New scam submission pending review", timeout=4, repo=REPO)
-                    if save_debug is None:
-                        save_debug = "save_ok"
-                except Exception as pe:
-                    save_debug = f"put_failed: {repr(pe)}"
-            else:
-                save_debug = f"skipped_elapsed_{elapsed:.1f}s"
-
-            self._respond(200, {"ok": True, "answer": parsed["remedy_advice"], "_debug_save": save_debug})
+            self._respond(200, {"ok": True, "answer": parsed["remedy_advice"]})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
