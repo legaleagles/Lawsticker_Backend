@@ -3,6 +3,7 @@ import os
 import base64
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
 REPO = "legaleagles/LabourLaw2"  # single repo for everything — matches scam-ed.py
@@ -41,7 +42,8 @@ Produce, in {lang_names.get(lang, "English")}:
 - prevalence_note: one honest, qualitative sentence on how commonly this pattern is reported — do not invent statistics or percentages
 - supportive_note: warm, genuine reassurance — for the person who went through this, and for anyone reading this to learn
 
-Stay factual and general. If you're not confident about a specific law applying, leave it out rather than guess."""
+Stay factual and general. If you're not confident about a specific law applying, leave it out rather than guess.
+Use simple, everyday language a common person can easily understand — avoid formal or academic wording throughout."""
 
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
@@ -140,7 +142,6 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             report_id = body.get("id")
-            enrich_debug = None
             if not report_id:
                 self._respond(400, {"ok": False, "error": "No report id provided."})
                 return
@@ -158,15 +159,11 @@ class handler(BaseHTTPRequestHandler):
             if action == "approve":
                 gemini_key = os.environ.get("GEMINI_API_KEY")
                 enrichment = None
-                if not gemini_key:
-                    enrich_debug = "no_gemini_key"
-                else:
+                if gemini_key:
                     try:
                         enrichment = call_gemini_enrichment(gemini_key, target["category"], target["anonymized_story"], target.get("lang", "en"))
-                        enrich_debug = "ok" if enrichment else "returned_none"
-                    except Exception as ee:
-                        enrichment = None
-                        enrich_debug = repr(ee)
+                    except Exception:
+                        enrichment = None  # approval must still succeed even if enrichment fails
 
                 try:
                     public_data, public_sha = github_get_raw(PUBLIC_FILE, site_token)
@@ -181,6 +178,7 @@ class handler(BaseHTTPRequestHandler):
                 src_fields = target.get("structured_fields", {})
                 public_entry = {
                     "id": target["id"],
+                    "ref_number": target.get("ref_number", ""),
                     "category": target["category"],
                     "title": target["title"],
                     "anonymized_story": target["anonymized_story"],
@@ -192,13 +190,14 @@ class handler(BaseHTTPRequestHandler):
                     },
                     "lang": target.get("lang", "en"),
                     "status": "approved",
+                    "submitted_at": target.get("submitted_at", ""),
+                    "approved_at": datetime.now(timezone.utc).isoformat(),
                 }
                 if enrichment:
                     public_entry["enrichment"] = enrichment
                 public_data.setdefault("entries", []).append(public_entry)
                 github_put(PUBLIC_FILE, site_token, public_data, public_sha, "Approve scam report")
                 target["status"] = "approved"
-                target["_debug_enrich"] = enrich_debug
 
             elif action == "reject":
                 target["status"] = "rejected"
@@ -208,7 +207,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             github_put(PENDING_FILE, site_token, pending, pending_sha, f"Scam report {action}")
-            self._respond(200, {"ok": True, "_debug_enrich": enrich_debug})
+            self._respond(200, {"ok": True})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
