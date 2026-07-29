@@ -13,23 +13,7 @@
       "use": "@vercel/python"
     },
     {
-      "src": "api/plc-watch.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/lawcet-news-watch.py",
-      "use": "@vercel/python"
-    },
-    {
       "src": "api/daily-digest.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/visit-digest.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/news-digest.py",
       "use": "@vercel/python"
     },
     {
@@ -51,6 +35,14 @@
     {
       "src": "api/scam-verify.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/site-activity-digest.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/site-watchers.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
@@ -67,24 +59,8 @@
       "dest": "api/pulse.py"
     },
     {
-      "src": "/api/plc-watch",
-      "dest": "api/plc-watch.py"
-    },
-    {
-      "src": "/api/lawcet-news-watch",
-      "dest": "api/lawcet-news-watch.py"
-    },
-    {
       "src": "/api/daily-digest",
       "dest": "api/daily-digest.py"
-    },
-    {
-      "src": "/api/visit-digest",
-      "dest": "api/visit-digest.py"
-    },
-    {
-      "src": "/api/news-digest",
-      "dest": "api/news-digest.py"
     },
     {
       "src": "/api/news-digest-i18n",
@@ -105,6 +81,14 @@
     {
       "src": "/api/scam-verify",
       "dest": "api/scam-verify.py"
+    },
+    {
+      "src": "/api/site-activity-digest",
+      "dest": "api/site-activity-digest.py"
+    },
+    {
+      "src": "/api/site-watchers",
+      "dest": "api/site-watchers.py"
     }
   ],
   "crons": [
