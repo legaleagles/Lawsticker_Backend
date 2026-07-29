@@ -47,6 +47,10 @@
     {
       "src": "api/scam-moderate.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/scam-verify.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
@@ -97,6 +101,10 @@
     {
       "src": "/api/scam-moderate",
       "dest": "api/scam-moderate.py"
+    },
+    {
+      "src": "/api/scam-verify",
+      "dest": "api/scam-verify.py"
     }
   ],
   "crons": [
