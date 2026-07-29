@@ -74,7 +74,81 @@ TOPIC_LABELS = {
     "health": "Health Rights", "digital": "Digital Rights", "farmer": "Farmer Rights",
     "personal": "Personal Rights", "student": "Student Rights",
     "lawcet": "LAWCET Counselling", "calculators": "Site Calculators", "llbsubjects": "LLB Subjects",
+    "scam_verify": "Check a Scam",
 }
+
+PUBLIC_SCAM_FILE = "scam-reports.json"
+SCAM_VERIFY_RISK_LEVELS = ["High Concern", "Some Concern", "Low Concern", "Not Enough Information"]
+SCAM_VERIFY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "risk_level": {"type": "string", "enum": SCAM_VERIFY_RISK_LEVELS},
+        "red_flags_found": {"type": "array", "items": {"type": "string"}, "description": "Specific warning signs identified in THIS situation, empty array if none"},
+        "matches_known_pattern": {"type": "boolean", "description": "True only if this genuinely resembles a pattern in the provided reported cases"},
+        "matched_category": {"type": "string", "description": "Which category it resembles, empty string if matches_known_pattern is false"},
+        "reasoning": {"type": "string", "description": "2-3 sentences explaining the assessment, plain and simple language"},
+        "advice": {"type": "string", "description": "Practical next steps — what to check or do, plain simple language"},
+    },
+    "required": ["risk_level", "red_flags_found", "matches_known_pattern", "matched_category", "reasoning", "advice"],
+}
+
+
+def summarize_known_scam_patterns(entries, max_entries=20):
+    lines = []
+    for e in entries[-max_entries:]:
+        enrichment = e.get("enrichment", {})
+        signals = e.get("signals", {})
+        line = f"- Category: {e.get('category', 'Other')}"
+        if enrichment.get("scam_type_label"):
+            line += f" | Type: {enrichment['scam_type_label']}"
+        if signals.get("contact_method"):
+            line += f" | Contact: {signals['contact_method']}"
+        if signals.get("ask_action"):
+            line += f" | Asked for: {signals['ask_action']}"
+        lines.append(line)
+    return "\n".join(lines) if lines else "No reported cases in the database yet."
+
+
+def build_scam_verify_prompt(situation, known_patterns_summary, lang):
+    lang_names = {"en": "English", "te": "Telugu", "hi": "Hindi"}
+    return f"""You are Durga Bro, checking whether a described situation shows signs of being a scam.
+
+REPORTED PATTERNS FROM OUR COMMUNITY DATABASE (real, anonymized cases):
+{known_patterns_summary}
+
+USER'S SITUATION:
+{situation}
+
+Analyze honestly and produce, in {lang_names.get(lang, "English")}:
+- risk_level: your genuine, calibrated assessment. Do NOT default to "High Concern" just to be safe — only use it when the situation clearly shows real warning signs. Use "Not Enough Information" honestly when the description is too vague to judge.
+- red_flags_found: concrete warning signs actually present in what they described — do not invent flags that aren't there
+- matches_known_pattern: true ONLY if this situation genuinely resembles one of the reported patterns above — do not force a match
+- matched_category: which category, only if matches_known_pattern is true
+- reasoning: explain your assessment plainly — why you landed on this risk level
+- advice: practical next steps in simple language — what to verify, who to contact if genuinely worried (mention Cybercrime Helpline 1930 or NALSA 15100 only if genuinely relevant)
+
+Be honest and calibrated — false alarms erode trust just as much as missed warnings. If this looks like a completely normal, legitimate interaction, say so plainly rather than manufacturing concern."""
+
+
+def call_gemini_structured(api_key, prompt, schema):
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 600,
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+        },
+    }).encode()
+    req = urllib.request.Request(
+        f"{GEMINI_URL}?key={api_key}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        result = json.loads(resp.read().decode())
+    raw_text = result["candidates"][0]["content"]["parts"][0]["text"]
+    return json.loads(raw_text)
 
 
 def filter_relevant_entries(question, entries, topic=None, prev_question=None, max_entries=10):
@@ -260,6 +334,33 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(400, {"ok": False, "error": "No question or image provided."})
                 return
 
+            if topic == "scam_verify" and question:
+                try:
+                    public_data, _ = github_get_raw(PUBLIC_SCAM_FILE, site_token, timeout=1.5)
+                    scam_entries = public_data.get("entries", [])
+                except Exception:
+                    scam_entries = []
+                known_patterns_summary = summarize_known_scam_patterns(scam_entries)
+                verify_prompt = build_scam_verify_prompt(question, known_patterns_summary, lang)
+                try:
+                    verify_result = call_gemini_structured(gemini_key, verify_prompt, SCAM_VERIFY_SCHEMA)
+                except urllib.error.HTTPError as e:
+                    error_body = e.read().decode()
+                    if e.code == 429:
+                        self._respond(200, {"ok": False, "error": f"BUSY_RIGHT_NOW: {error_body[:200]}"})
+                    else:
+                        self._respond(200, {"ok": False, "error": f"AI service error: {error_body[:300]}"})
+                    return
+                except Exception:
+                    verify_result = None
+
+                if not verify_result:
+                    self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
+                    return
+
+                self._respond(200, {"ok": True, "result_type": "scam_verify", "result": verify_result})
+                return
+
             kb, _ = github_get_raw(KB_FILE, site_token, timeout=1.5)
             entries = kb.get("entries", [])
 
@@ -286,7 +387,7 @@ class handler(BaseHTTPRequestHandler):
                 self._respond(200, {"ok": False, "error": "AI service returned an unexpected response."})
                 return
 
-            self._respond(200, {"ok": True, "answer": answer})
+            self._respond(200, {"ok": True, "result_type": "text", "answer": answer})
 
         except Exception as e:
             self._respond(500, {"ok": False, "error": str(e)})
