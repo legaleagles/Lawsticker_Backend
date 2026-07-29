@@ -33,10 +33,6 @@
       "use": "@vercel/python"
     },
     {
-      "src": "api/scam-verify.py",
-      "use": "@vercel/python"
-    },
-    {
       "src": "api/site-activity-digest.py",
       "use": "@vercel/python"
     },
@@ -77,10 +73,6 @@
     {
       "src": "/api/scam-moderate",
       "dest": "api/scam-moderate.py"
-    },
-    {
-      "src": "/api/scam-verify",
-      "dest": "api/scam-verify.py"
     },
     {
       "src": "/api/site-activity-digest",
